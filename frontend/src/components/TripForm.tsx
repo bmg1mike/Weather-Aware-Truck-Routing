@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { Place, PlanRequest, SamplingInterval } from '../api/types';
@@ -15,11 +15,13 @@ function PlaceInput({
   value,
   onChange,
   destination = false,
+  error,
 }: {
   label: string;
   value: LocationInput;
   onChange: (value: LocationInput) => void;
   destination?: boolean;
+  error?: string;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -67,9 +69,10 @@ function PlaceInput({
           value={value.text}
           aria-expanded={expanded}
           aria-autocomplete="list"
+          aria-invalid={Boolean(error)}
           aria-controls={`${id}-suggestions`}
           aria-activedescendant={expanded && active >= 0 ? `${id}-option-${active}` : undefined}
-          aria-describedby={visible && (suggestions.error || suggestions.isFetching) ? `${id}-status` : undefined}
+          aria-describedby={[error ? `${id}-error` : '', visible && (suggestions.error || suggestions.isFetching) ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
           onFocus={() => setOpen(true)}
           onChange={(event) => {
             onChange({ text: event.target.value, place: null });
@@ -80,6 +83,10 @@ function PlaceInput({
             if (event.key === 'Escape') {
               setOpen(false);
               setActive(-1);
+            } else if (!open && !value.place && search.length >= 3 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+              event.preventDefault();
+              setOpen(true);
+              setActive(event.key === 'ArrowUp' ? (suggestions.data?.results.length ?? 0) - 1 : 0);
             } else if (places.length > 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
               event.preventDefault();
               setActive((current) =>
@@ -94,6 +101,7 @@ function PlaceInput({
             }
           }}
         />
+        {error && <p className="field-error" id={`${id}-error`} role="alert">{error}</p>}
       </div>
       {expanded && (
         <ul className="place-suggestions" id={`${id}-suggestions`} role="listbox" aria-label={`${label} suggestions`}>
@@ -146,11 +154,17 @@ export function TripForm({
   const [departure, setDeparture] = useState(initialDeparture);
   const [load, setLoad] = useState('40000');
   const [interval, setInterval] = useState<SamplingInterval>(25);
-  const [validation, setValidation] = useState<string | null>(null);
+  const [validation, setValidation] = useState<{ field: 'origin' | 'destination' | 'departure' | 'load'; message: string } | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (validation) formRef.current?.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus();
+  }, [validation]);
 
   return (
     <form
       className="trip-form"
+      ref={formRef}
       aria-label="Trip details"
       noValidate
       onSubmit={(event) => {
@@ -158,15 +172,17 @@ export function TripForm({
         const time = new Date(departure).getTime();
         const weight = Number(load);
         const now = Date.now();
-        let error: string | null = null;
-        if (!origin.place || !destination.place) {
-          error = 'Choose an origin and destination from the address suggestions.';
+        let error: typeof validation = null;
+        if (!origin.place) {
+          error = { field: 'origin', message: 'Choose an origin from the address suggestions.' };
+        } else if (!destination.place) {
+          error = { field: 'destination', message: 'Choose a destination from the address suggestions.' };
         } else if (origin.place.lat === destination.place.lat && origin.place.lon === destination.place.lon) {
-          error = 'Your origin and destination must be different.';
+          error = { field: 'destination', message: 'Your origin and destination must be different.' };
         } else if (!Number.isFinite(time) || time < now - 5 * 60_000 || time > now + 7 * 24 * 60 * 60_000) {
-          error = 'Choose a departure between now and seven days from now.';
+          error = { field: 'departure', message: 'Choose a departure between now and seven days from now.' };
         } else if (!Number.isInteger(weight) || weight < 1 || weight > 80_000) {
-          error = 'Enter a whole-number load weight between 1 and 80,000 lb.';
+          error = { field: 'load', message: 'Enter a whole-number load weight between 1 and 80,000 lb.' };
         }
         setValidation(error);
         if (error || !origin.place || !destination.place) return;
@@ -182,7 +198,7 @@ export function TripForm({
       <fieldset disabled={pending} className="form-fields">
         <legend className="sr-only">Your trip</legend>
         <div className="locations">
-          <PlaceInput label="Origin" value={origin} onChange={setOrigin} />
+          <PlaceInput label="Origin" value={origin} error={validation?.field === 'origin' ? validation.message : undefined} onChange={(value) => { setOrigin(value); if (validation?.field === 'origin') setValidation(null); }} />
           <button
             type="button"
             className="swap-button"
@@ -190,11 +206,12 @@ export function TripForm({
             onClick={() => {
               setOrigin(destination);
               setDestination(origin);
+              setValidation(null);
             }}
           >
             <Icon name="swap" size={16} />
           </button>
-          <PlaceInput label="Destination" value={destination} onChange={setDestination} destination />
+          <PlaceInput label="Destination" value={destination} error={validation?.field === 'destination' ? validation.message : undefined} onChange={(value) => { setDestination(value); if (validation?.field === 'destination') setValidation(null); }} destination />
         </div>
 
         <div className="form-section-label"><span>Departure & vehicle</span><span className="section-rule" /></div>
@@ -204,17 +221,22 @@ export function TripForm({
           className="form-input"
           type="datetime-local"
           value={departure}
-          onChange={(event) => setDeparture(event.target.value)}
+          aria-invalid={validation?.field === 'departure'}
+          aria-describedby={validation?.field === 'departure' ? 'departure-error departure-help' : 'departure-help'}
+          onChange={(event) => { setDeparture(event.target.value); if (validation?.field === 'departure') setValidation(null); }}
         />
+        <p className="field-help" id="departure-help">Your time zone: {Intl.DateTimeFormat().resolvedOptions().timeZone}. Up to 7 days ahead.</p>
+        {validation?.field === 'departure' && <p className="field-error" id="departure-error" role="alert">{validation.message}</p>}
         <div className="load-heading">
           <label className="input-label" htmlFor="load">Load weight</label>
           <span className="field-note">Up to 80,000 lb</span>
         </div>
         <div className="input-with-unit">
           <Icon name="truck" size={18} />
-          <input id="load" type="number" min="1" max="80000" step="1" value={load} onChange={(event) => setLoad(event.target.value)} />
+          <input id="load" type="number" min="1" max="80000" step="1" value={load} aria-invalid={validation?.field === 'load'} aria-describedby={validation?.field === 'load' ? 'load-error' : undefined} onChange={(event) => { setLoad(event.target.value); if (validation?.field === 'load') setValidation(null); }} />
           <span>lb</span>
         </div>
+        {validation?.field === 'load' && <p className="field-error" id="load-error" role="alert">{validation.message}</p>}
 
         <fieldset className="sampling-field">
           <legend className="input-label">Weather checkpoint interval</legend>
@@ -228,7 +250,6 @@ export function TripForm({
           </div>
           <p className="field-help">Closer checkpoints. A more detailed picture.</p>
         </fieldset>
-        {validation && <p className="form-error" role="alert">{validation}</p>}
         <button className="primary-button" type="submit">
           {pending ? <><span className="spinner" /> Comparing routes…</> : <>Find my route <Icon name="arrow" size={19} /></>}
         </button>

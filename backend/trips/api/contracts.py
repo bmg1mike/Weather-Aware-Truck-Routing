@@ -80,6 +80,15 @@ class RouteSummaryJSON(TypedDict):
     """[start_mi, end_mi] ranges at No Travel, for the "no safe route" banner."""
 
 
+class SegmentJSON(TypedDict):
+    start_mi: float
+    end_mi: float
+    geometry: str
+    """Encoded road geometry between consecutive checkpoints (precision 5)."""
+    level: CheckpointLevelSlug
+    """Computed by the backend scoring core, never re-derived by the frontend."""
+
+
 class RouteJSON(TypedDict):
     id: str
     name: str
@@ -93,6 +102,7 @@ class RouteJSON(TypedDict):
     """Encoded polyline."""
     summary: RouteSummaryJSON
     checkpoints: list[CheckpointJSON]
+    segments: list[SegmentJSON]
 
 
 class CorridorJSON(TypedDict):

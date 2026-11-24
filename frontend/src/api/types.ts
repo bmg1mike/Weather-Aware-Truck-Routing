@@ -78,6 +78,16 @@ export interface Route {
   geometry: string;
   summary: RouteSummary;
   checkpoints: Checkpoint[];
+  /** Road-following segments with risk computed by the backend scoring core. */
+  segments: RouteSegment[];
+}
+
+export interface RouteSegment {
+  start_mi: number;
+  end_mi: number;
+  /** Encoded polyline, precision 5. */
+  geometry: string;
+  level: CheckpointLevel;
 }
 
 /** [min_lon, min_lat, max_lon, max_lat] */

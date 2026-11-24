@@ -1,13 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api, ApiError } from '../api/client';
 import { TripForm } from './TripForm';
 
 const dallas = { label: 'Dallas, TX', lat: 32.7767, lon: -96.797 };
 const denver = { label: 'Denver, CO', lat: 39.7392, lon: -104.9903 };
+
+afterEach(() => vi.useRealTimers());
 
 function renderForm() {
   const submit = vi.fn();
@@ -33,8 +35,26 @@ describe('TripForm', () => {
   it('requires resolved locations instead of sending free-text addresses', async () => {
     const { user, submit } = renderForm();
     await user.click(screen.getByRole('button', { name: 'Find my route' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose an origin and destination');
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose an origin from the address suggestions.');
+    expect(screen.getByRole('combobox', { name: 'Origin' })).toHaveFocus();
+    expect(screen.getByRole('combobox', { name: 'Origin' })).toHaveAttribute('aria-invalid', 'true');
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('waits the full 300 ms and resets the debounce when the address changes', async () => {
+    vi.useFakeTimers();
+    const geocode = vi.spyOn(api, 'geocode').mockResolvedValue({ results: [denver] });
+    renderForm();
+    const input = screen.getByRole('combobox', { name: 'Origin' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'Dallas' } });
+    act(() => vi.advanceTimersByTime(299));
+    expect(geocode).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: 'Denver' } });
+    act(() => vi.advanceTimersByTime(299));
+    expect(geocode).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(geocode).toHaveBeenCalledExactlyOnceWith('Denver', expect.any(AbortSignal));
   });
 
   it('debounces autocomplete, requires three characters and supports keyboard selection', async () => {
@@ -46,6 +66,8 @@ describe('TripForm', () => {
     await user.type(input, 'llas');
     await screen.findByRole('option', { name: 'Dallas, TX' });
     expect(geocode).toHaveBeenCalledExactlyOnceWith('Dallas', expect.any(AbortSignal));
+    await user.keyboard('{Escape}');
+    expect(input).toHaveAttribute('aria-expanded', 'false');
     await user.keyboard('{ArrowDown}{Enter}');
     expect(input).toHaveValue('Dallas, TX');
     expect(input).toHaveAttribute('aria-expanded', 'false');
@@ -79,6 +101,22 @@ describe('TripForm', () => {
     await user.clear(screen.getByLabelText(/Departure time/));
     await user.click(screen.getByRole('button', { name: 'Find my route' }));
     expect(screen.getByRole('alert')).toHaveTextContent('between now and seven days');
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('rejects identical coordinates and invalidates a location when its selected text is edited', async () => {
+    const { user, submit } = renderForm();
+    await selectPlaces(user);
+    const destination = screen.getByRole('combobox', { name: 'Destination' });
+    await user.clear(destination);
+    await user.type(destination, 'Dallas');
+    await user.click(await screen.findByRole('option', { name: 'Dallas, TX' }));
+    await user.click(screen.getByRole('button', { name: 'Find my route' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('must be different');
+    expect(destination).toHaveFocus();
+    await user.type(destination, 'x');
+    await user.click(screen.getByRole('button', { name: 'Find my route' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose a destination from the address suggestions.');
     expect(submit).not.toHaveBeenCalled();
   });
 

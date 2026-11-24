@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from './api/client';
 import type { PlanRequest } from './api/types';
@@ -7,18 +7,42 @@ import { Icon } from './components/Icon';
 import { RiskLegend } from './components/RiskLegend';
 import { RouteResults } from './components/RouteResults';
 import { TripForm } from './components/TripForm';
+import { formatDuration } from './lib/format';
 import { MapView } from './map/MapView';
 
 export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [checkpointIndex, setCheckpointIndex] = useState<number | null>(null);
+  const [editing, setEditing] = useState(true);
+  const resultsHeading = useRef<HTMLHeadingElement>(null);
   const plan = useMutation({
     mutationFn: (request: PlanRequest) => api.planTrip(request),
     retry: false,
-    onSuccess: (data) => setSelectedId(data.recommended_route_id),
+    onSuccess: (data) => {
+      setSelectedId(data.recommended_route_id);
+      setCheckpointIndex(null);
+      setEditing(data.routes.length === 0);
+    },
   });
+  const selectedRoute = plan.data?.routes.find((route) => route.id === selectedId);
+  const hasRoutes = Boolean(plan.data?.routes.length);
+  const selectRoute = useCallback((id: string) => {
+    if (id !== selectedId) {
+      setSelectedId(id);
+      setCheckpointIndex(null);
+    }
+  }, [selectedId]);
+  const inspectCheckpoint = useCallback((id: string, index: number | null) => {
+    setSelectedId(id);
+    setCheckpointIndex(index);
+  }, []);
+
+  useEffect(() => {
+    if (plan.data) resultsHeading.current?.focus();
+  }, [plan.data]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${hasRoutes ? 'app-shell--planned' : ''}`}>
       <a className="skip-link" href="#trip-planner">Skip to trip planner</a>
       <header className="app-header">
         <a className="brand" href="./" aria-label="Waypoint home">
@@ -36,47 +60,53 @@ export function App() {
             <div className="eyebrow"><span className="tiny-cross">+</span> A LITTLE FORESIGHT. A BETTER JOURNEY.</div>
             <h2 className="planner-title">Know what’s<br />{' '}on the <em>way.</em></h2>
             <p className="planner-description">A clearer view of the road ahead.<br />{' '}Compare routes. Stay ahead of the weather.</p>
-            <div className="planner-section-heading"><span className="step-number">01</span><h3>Plan your journey</h3><span className="section-rule" /><Icon name="route" size={17} /></div>
-            <TripForm onSubmit={(request) => plan.mutate(request)} pending={plan.isPending} />
+            <div className="planner-section-heading"><span className="step-number">01</span><h3>Plan your journey</h3><span className="section-rule" />{hasRoutes ? <button className="edit-trip-button" disabled={plan.isPending} aria-expanded={editing} aria-controls="trip-editor" onClick={() => setEditing(!editing)}>{editing ? 'Hide details' : 'Edit trip'}<Icon name="chevron" size={13} /></button> : <Icon name="route" size={17} />}</div>
+            {hasRoutes && !editing && plan.variables && <p className="trip-summary"><span>{plan.variables.origin.label}</span><Icon name="arrow" size={15} /><span>{plan.variables.destination.label}</span></p>}
+            <div id="trip-editor" hidden={!editing}><TripForm onSubmit={(request) => plan.mutate(request)} pending={plan.isPending} /></div>
 
             {plan.isError && (
               <div className="api-error" role="alert">
-                <strong>{plan.error instanceof ApiError && plan.error.code === 'not_implemented' ? 'Trip planning is on the way' : 'We couldn’t plan this trip'}</strong>
-                <p>{plan.error instanceof ApiError && plan.error.code === 'not_implemented' ? 'The planning service is still being built. Your trip details are ready, but live routes and forecasts aren’t available yet.' : plan.error.message}</p>
+                <strong>We couldn’t plan this trip</strong>
+                <p>{plan.error.message}</p>
                 {plan.error instanceof ApiError && plan.error.retryAfterS && <p>Try again in {plan.error.retryAfterS} seconds.</p>}
                 {plan.error instanceof ApiError && plan.error.retryable && <button className="text-button" onClick={() => plan.variables && plan.mutate(plan.variables)}>Try again <Icon name="arrow" size={14} /></button>}
               </div>
             )}
-            {plan.isPending && <div className="loading-routes" role="status"><span className="skeleton" /><span className="skeleton" /><p>Finding the road with fewer surprises…</p></div>}
-            {plan.data && !plan.isPending && <RouteResults plan={plan.data} selectedId={selectedId} onSelect={setSelectedId} />}
+            {plan.isPending && <div className="loading-routes" role="status" aria-label="Comparing routes"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /><p>Finding the road with fewer surprises…<br />Routes and forecasts can take a few seconds.</p></div>}
+            {plan.data && !plan.isPending && <RouteResults plan={plan.data} selectedId={selectedId} checkpointIndex={checkpointIndex} onSelect={selectRoute} onInspect={setCheckpointIndex} headingRef={resultsHeading} />}
           </div>
           <footer className="planner-footer"><span className="footer-mark"><Icon name="compass" size={16} /> Foresight for every mile.</span><span>US / MI / LB</span></footer>
         </aside>
 
         <main className="map-area" aria-label="Journey overview">
-          <MapView routes={plan.data?.routes} selectedId={selectedId} onSelect={setSelectedId} />
+          <MapView routes={plan.data?.routes} selectedId={selectedId} onSelect={selectRoute} checkpointIndex={checkpointIndex} onInspect={inspectCheckpoint} />
           <div className="map-topline">
             <div className="map-view-label"><span className="map-status-dot" /><span>THE BIG PICTURE</span><span className="map-view-divider" /><span className="map-region">Contiguous United States</span></div>
             <span className="map-mode"><Icon name="layers" size={15} /> Atlas view</span>
           </div>
-          {!plan.data?.routes.length && (
+          {!hasRoutes && !plan.isPending && (
             <div className="map-empty" aria-hidden="true">
               <span className="map-empty-icon"><Icon name="route" size={26} /></span>
-              <h2>Your next chapter,<br /><em>mapped out.</em></h2>
-              <p>Start with a destination.<br />We’ll help you see the way forward.</p>
+              <h2>{plan.data ? <>No route found.<br /><em>A different way?</em></> : <>Your next chapter,<br /><em>mapped out.</em></>}</h2>
+              <p>{plan.data ? 'Try another origin or destination to explore a different journey.' : <>Start with a destination.<br />We’ll help you see the way forward.</>}</p>
               <span className="map-empty-coordinate">39.5000° N &nbsp; 98.5000° W</span>
             </div>
           )}
+          {plan.isPending && <div className="map-planning-status" role="status"><span className="spinner" /> Comparing routes and checking forecasts</div>}
           <div className="map-bottom">
             <section className="map-legend" aria-label="Weather risk key">
               <div className="map-card-heading"><Icon name="shield" size={15} /><h2>Every mile, in perspective.</h2><span>WEATHER RISK</span></div>
               <RiskLegend />
             </section>
-            <section className="forecast-note" aria-label="Forecast availability">
+            {selectedRoute ? <section className="forecast-note selected-route-note" aria-label="Selected route">
+              <span className="forecast-icon"><Icon name="route" size={24} /></span>
+              <div><h2>{selectedRoute.name} <span>· {formatDuration(selectedRoute.duration_s)} · {selectedRoute.distance_mi.toLocaleString([], { maximumFractionDigits: 1 })} mi</span></h2><p>Select a checkpoint to inspect the weather at your ETA. Dashed grey segments have no forecast.</p></div>
+              <a className="map-compare-link" href="#route-options">Compare routes <Icon name="arrow" size={15} /></a>
+            </section> : <section className="forecast-note" aria-label="Forecast availability">
               <span className="forecast-icon"><Icon name="weather" size={24} /></span>
               <div><h2>The weather moves. Your plan should, too.</h2><p>48-hour corridor forecasts are coming next. No forecast layer is displayed yet.</p></div>
               <span className="soon-badge">UP NEXT</span>
-            </section>
+            </section>}
           </div>
         </main>
       </div>

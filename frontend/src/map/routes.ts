@@ -41,13 +41,34 @@ export function routeFeatures(routes: Route[], selectedId: string | null): Featu
   };
 }
 
+export function segmentFeatures(routes: Route[], selectedId: string | null): FeatureCollection<LineString> {
+  return {
+    type: 'FeatureCollection',
+    features: [...routes]
+      .sort((a, b) => Number(a.id === selectedId) - Number(b.id === selectedId))
+      .flatMap((route) => route.segments.map((segment) => ({
+        type: 'Feature',
+        properties: {
+          routeId: route.id,
+          selected: route.id === selectedId,
+          colour: RISK_STYLES[segment.level].colour,
+          level: segment.level,
+        },
+        geometry: { type: 'LineString', coordinates: decodePolyline(segment.geometry) },
+      }))),
+  };
+}
+
 export function checkpointFeatures(routes: Route[], selectedId: string | null): FeatureCollection<Point> {
   return {
     type: 'FeatureCollection',
-    features: routes.filter((route) => route.id === selectedId).flatMap((route) =>
+    features: [...routes].sort((a, b) => Number(a.id === selectedId) - Number(b.id === selectedId)).flatMap((route) =>
       route.checkpoints.map((checkpoint) => ({
         type: 'Feature',
         properties: {
+          routeId: route.id,
+          index: checkpoint.index,
+          selected: route.id === selectedId,
           colour: RISK_STYLES[checkpoint.level].colour,
           label: RISK_STYLES[checkpoint.level].label,
           mile: checkpoint.mile,

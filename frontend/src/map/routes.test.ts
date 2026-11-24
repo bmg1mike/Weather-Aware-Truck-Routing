@@ -1,37 +1,37 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Route } from '../api/types';
 import { RISK_STYLES } from '../lib/risk';
-import { checkpointFeatures, routeFeatures } from './routes';
-
-const route: Route = {
-  id: 'r1',
-  rank: 1,
-  reason: 'Fewest Severe miles.',
-  distance_mi: 100,
-  duration_s: 7200,
-  arrival: '2026-11-25T18:00:00Z',
-  geometry: '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
-  summary: { miles_by_level: { low: 0, moderate: 0, high: 0, severe: 0, no_travel: 0 }, unknown_mi: 100, avg_risk: null, unknown_checkpoints: 1 },
-  checkpoints: [{ index: 0, lat: 38.5, lon: -120.2, mile: 0, eta: '2026-11-25T16:00:00Z', wind_mph: null, gust_mph: null, rain_in_hr: null, snow_in_hr: null, level: 'unknown', driver: null }],
-};
+import { testRoute } from '../test/fixtures';
+import { checkpointFeatures, routeFeatures, segmentFeatures } from './routes';
 
 describe('map route features', () => {
   it('decodes API polylines in longitude-latitude order and draws the selected route last', () => {
-    const collection = routeFeatures([route, { ...route, id: 'r2' }], 'r1');
+    const collection = routeFeatures([testRoute, { ...testRoute, id: 'r2' }], 'r1');
     expect(collection.features.map((feature) => feature.properties?.routeId)).toEqual(['r2', 'r1']);
     expect(collection.features[1]?.geometry.coordinates).toEqual([
       [-120.2, 38.5], [-120.95, 40.7], [-126.453, 43.252],
     ]);
   });
 
-  it('shows only selected-route checkpoints and preserves unknown forecast presentation', () => {
-    const collection = checkpointFeatures([route, { ...route, id: 'r2' }], 'r1');
-    expect(collection.features).toHaveLength(1);
+  it('uses the server segment risk, even if checkpoint weather would suggest another level', () => {
+    const collection = segmentFeatures([{
+      ...testRoute,
+      segments: [{ ...testRoute.segments[0]!, level: 'severe' }],
+    }], 'r1');
     expect(collection.features[0]).toMatchObject({
-      geometry: { type: 'Point', coordinates: [-120.2, 38.5] },
-      properties: { colour: RISK_STYLES.unknown.colour, label: 'No forecast' },
+      properties: { routeId: 'r1', selected: true, colour: RISK_STYLES.severe.colour, level: 'severe' },
+      geometry: { type: 'LineString', coordinates: [[-120.2, 38.5], [-120.95, 40.7], [-126.453, 43.252]] },
     });
-    expect(checkpointFeatures([route], 'missing').features).toEqual([]);
+  });
+
+  it('keeps checkpoints on all routes, dims alternatives and preserves unknown data', () => {
+    const unknown = { ...testRoute, checkpoints: [{ ...testRoute.checkpoints[0]!, level: 'unknown' as const }] };
+    const collection = checkpointFeatures([unknown, { ...testRoute, id: 'r2' }], 'r1');
+    expect(collection.features).toHaveLength(3);
+    expect(collection.features[0]?.properties).toMatchObject({ routeId: 'r2', selected: false });
+    expect(collection.features[2]).toMatchObject({
+      geometry: { type: 'Point', coordinates: [-120.2, 38.5] },
+      properties: { routeId: 'r1', index: 0, selected: true, colour: RISK_STYLES.unknown.colour, label: 'No forecast' },
+    });
   });
 });

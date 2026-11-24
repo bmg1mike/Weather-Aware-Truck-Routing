@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from datetime import UTC, datetime
+from itertools import pairwise
 
 from trips.api.contracts import (
     CheckpointJSON,
@@ -10,10 +12,12 @@ from trips.api.contracts import (
     MilesByLevel,
     PlanResponse,
     RouteJSON,
+    SegmentJSON,
 )
 from trips.domain import Checkpoint, Place, RiskLevel
 from trips.services.planner import PlannedRoute, TripPlan
-from trips.services.sampling import encode_polyline
+from trips.services.sampling import cumulative_miles, encode_polyline
+from trips.services.scoring import segments
 
 COORD_DECIMALS = 5
 MILE_DECIMALS = 1
@@ -54,6 +58,27 @@ def checkpoint_json(cp: Checkpoint) -> CheckpointJSON:
     }
 
 
+def _segments_json(route: PlannedRoute) -> list[SegmentJSON]:
+    option = route.option
+    distances = cumulative_miles(option.points, total_mi=option.distance_mi)
+    result: list[SegmentJSON] = []
+    for (start, end), segment in zip(
+        pairwise(route.checkpoints), segments(route.checkpoints), strict=True
+    ):
+        first = bisect_right(distances, segment.start_mi)
+        last = bisect_left(distances, segment.end_mi)
+        points = (start.point, *option.points[first:last], end.point)
+        result.append(
+            {
+                "start_mi": round(segment.start_mi, MILE_DECIMALS),
+                "end_mi": round(segment.end_mi, MILE_DECIMALS),
+                "geometry": encode_polyline(points),
+                "level": "unknown" if segment.level is None else segment.level.slug,
+            }
+        )
+    return result
+
+
 def route_json(route: PlannedRoute) -> RouteJSON:
     miles = route.summary.miles_by_level
     miles_json: MilesByLevel = {
@@ -84,6 +109,7 @@ def route_json(route: PlannedRoute) -> RouteJSON:
             ],
         },
         "checkpoints": [checkpoint_json(cp) for cp in route.checkpoints],
+        "segments": _segments_json(route),
     }
 
 

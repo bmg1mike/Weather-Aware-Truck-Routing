@@ -52,6 +52,7 @@ def test_plan_response_matches_the_contract(client, plan_payload, use_planner):
         "geometry",
         "summary",
         "checkpoints",
+        "segments",
     }
     assert (route["id"], route["name"], route["rank"]) == ("r1", "Route A", 1)
     assert route["distance_mi"] == 100.0
@@ -70,6 +71,18 @@ def test_plan_response_matches_the_contract(client, plan_payload, use_planner):
         "no_travel_stretches": [],
     }
     assert len(decode_polyline(route["geometry"])) == 101
+    assert len(route["segments"]) == len(route["checkpoints"]) - 1
+    for i, segment in enumerate(route["segments"]):
+        assert set(segment) == {"start_mi", "end_mi", "geometry", "level"}
+        assert segment["level"] == "low"
+        assert segment["start_mi"] == route["checkpoints"][i]["mile"]
+        assert segment["end_mi"] == route["checkpoints"][i + 1]["mile"]
+        points = decode_polyline(segment["geometry"])
+        assert len(points) > 2  # retain road vertices, not a straight checkpoint-to-checkpoint line
+        assert points[0] == LatLon(route["checkpoints"][i]["lat"], route["checkpoints"][i]["lon"])
+        assert points[-1] == LatLon(
+            route["checkpoints"][i + 1]["lat"], route["checkpoints"][i + 1]["lon"]
+        )
 
     checkpoint = route["checkpoints"][1]
     assert set(checkpoint) == {
@@ -94,7 +107,9 @@ def test_unknown_checkpoint_is_serialised_with_nulls(client, plan_payload, use_p
     use_planner(
         [north_route("r1", 50, 1)], conditions=lambda c, h: HourValues(None, None, None, None, None)
     )
-    checkpoint = post_plan(client, plan_payload).json()["routes"][0]["checkpoints"][0]
+    route = post_plan(client, plan_payload).json()["routes"][0]
+    assert all(segment["level"] == "unknown" for segment in route["segments"])
+    checkpoint = route["checkpoints"][0]
     assert checkpoint["level"] == "unknown"
     assert checkpoint["driver"] is None
     assert checkpoint["wind_mph"] is None and checkpoint["rain_in_hr"] is None
@@ -106,6 +121,7 @@ def test_no_safe_route_and_stretch(client, plan_payload, use_planner):
     assert body["no_safe_route"] is True
     assert body["routes"][0]["summary"]["no_travel_stretches"] == [[0.0, 50.0]]
     assert body["routes"][0]["reason"].startswith("Least bad:")
+    assert all(segment["level"] == "no_travel" for segment in body["routes"][0]["segments"])
 
 
 def test_plan_passes_parsed_input_to_the_planner(client, plan_payload, use_planner):
