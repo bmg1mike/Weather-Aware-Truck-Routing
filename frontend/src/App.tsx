@@ -1,14 +1,20 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from './api/client';
-import type { PlanRequest } from './api/types';
+import type { HeatmapResponse, PlanRequest } from './api/types';
+import { HeatmapPanel } from './components/HeatmapPanel';
 import { Icon } from './components/Icon';
 import { RiskLegend } from './components/RiskLegend';
 import { RouteResults } from './components/RouteResults';
 import { TripForm } from './components/TripForm';
 import { formatDuration } from './lib/format';
+import { toFrames } from './lib/heatmap';
+import { HeatmapController } from './map/heatmapLayer';
 import { MapView } from './map/MapView';
+
+// Module-level so TanStack Query memoises the typed-array conversion per response.
+const selectFrames = (response: HeatmapResponse) => toFrames(response);
 
 export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -26,6 +32,38 @@ export function App() {
   });
   const selectedRoute = plan.data?.routes.find((route) => route.id === selectedId);
   const hasRoutes = Boolean(plan.data?.routes.length);
+  const [heatmapController] = useState(() => new HeatmapController());
+  // Requested only after the plan succeeds, so routes are on screen first (spec section 8).
+  const heatmap = useQuery({
+    queryKey: ['heatmap', plan.submittedAt],
+    enabled: hasRoutes && !plan.isPending && Boolean(plan.variables),
+    queryFn: ({ signal }) => {
+      const routes = plan.data?.routes ?? [];
+      const request = plan.variables;
+      if (!plan.data || !request) throw new Error('No plan to forecast.');
+      return api.heatmap({
+        bbox: plan.data.corridor.bbox,
+        route_geometries: routes.map((route) => route.geometry),
+        start: request.departure,
+        load_lb: request.load_lb,
+      }, signal);
+    },
+    select: selectFrames,
+    retry: false,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    heatmapController.setData(
+      hasRoutes ? heatmap.data ?? null : null,
+      plan.data?.routes ?? [],
+      plan.variables?.departure ?? null,
+      selectedId,
+    );
+    // selectedId is synced separately so selecting a route does not rebuild the raster.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heatmapController, heatmap.data, hasRoutes, plan.data, plan.variables]);
+  useEffect(() => heatmapController.setSelected(selectedId), [heatmapController, selectedId]);
   const selectRoute = useCallback((id: string) => {
     if (id !== selectedId) {
       setSelectedId(id);
@@ -79,7 +117,7 @@ export function App() {
         </aside>
 
         <main className="map-area" aria-label="Journey overview">
-          <MapView routes={plan.data?.routes} selectedId={selectedId} onSelect={selectRoute} checkpointIndex={checkpointIndex} onInspect={inspectCheckpoint} />
+          <MapView routes={plan.data?.routes} selectedId={selectedId} onSelect={selectRoute} checkpointIndex={checkpointIndex} onInspect={inspectCheckpoint} heatmap={heatmapController} />
           <div className="map-topline">
             <div className="map-view-label"><span className="map-status-dot" /><span>THE BIG PICTURE</span><span className="map-view-divider" /><span className="map-region">Contiguous United States</span></div>
             <span className="map-mode"><Icon name="layers" size={15} /> Atlas view</span>
@@ -94,6 +132,17 @@ export function App() {
           )}
           {plan.isPending && <div className="map-planning-status" role="status"><span className="spinner" /> Comparing routes and checking forecasts</div>}
           <div className="map-bottom">
+            {hasRoutes && !plan.isPending && (
+              <HeatmapPanel
+                key={plan.submittedAt}
+                status={heatmap.isError ? 'error' : heatmap.data ? 'ready' : 'loading'}
+                frames={heatmap.data ?? null}
+                start={plan.variables?.departure ?? null}
+                controller={heatmapController}
+                error={heatmap.error}
+                onRetry={() => void heatmap.refetch()}
+              />
+            )}
             <section className="map-legend" aria-label="Weather risk key">
               <div className="map-card-heading"><Icon name="shield" size={15} /><h2>Every mile, in perspective.</h2><span>WEATHER RISK</span></div>
               <RiskLegend />
@@ -104,8 +153,8 @@ export function App() {
               <a className="map-compare-link" href="#route-options">Compare routes <Icon name="arrow" size={15} /></a>
             </section> : <section className="forecast-note" aria-label="Forecast availability">
               <span className="forecast-icon"><Icon name="weather" size={24} /></span>
-              <div><h2>The weather moves. Your plan should, too.</h2><p>48-hour corridor forecasts are coming next. No forecast layer is displayed yet.</p></div>
-              <span className="soon-badge">UP NEXT</span>
+              <div><h2>The weather moves. Your plan should, too.</h2><p>Plan a trip to see a 48-hour forecast across the whole corridor, hour by hour.</p></div>
+              <span className="soon-badge">48 H</span>
             </section>}
           </div>
         </main>

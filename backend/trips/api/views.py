@@ -6,15 +6,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from trips.api.presenters import geocode_json, plan_json
+from trips.api.presenters import geocode_json, heatmap_json, plan_json
 from trips.api.serializers import (
     GeocodeQuerySerializer,
     HeatmapRequestSerializer,
     PlanRequestSerializer,
 )
 from trips.domain import LatLon, Place
-from trips.errors import NotImplementedYet
-from trips.services.container import get_geocoder, get_planner
+from trips.services.container import get_geocoder, get_heatmap_builder, get_planner
+from trips.services.heatmap import corridor_grid
 from trips.services.planner import PlanInput
 
 
@@ -50,6 +50,12 @@ class PlanView(APIView):
 
 
 class HeatmapView(APIView):
+    """All 49 frames in one response, so the slider never needs the network."""
+
     def post(self, request: Request) -> Response:
-        HeatmapRequestSerializer(data=request.data).is_valid(raise_exception=True)
-        raise NotImplementedYet("The heatmap arrives in plan phase 5.")
+        serializer = HeatmapRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        grid = corridor_grid(data["bbox"], data["route_geometries"])
+        frames = get_heatmap_builder().build(grid.points, data["start"], load_lb=data["load_lb"])
+        return Response(heatmap_json(grid, frames))

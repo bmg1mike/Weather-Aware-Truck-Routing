@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { api, ApiError } from './api/client';
 import type { PlanResponse } from './api/types';
-import { testPlan } from './test/fixtures';
+import { testHeatmap, testPlan } from './test/fixtures';
 
 async function enterTrip(user: ReturnType<typeof userEvent.setup>) {
   vi.spyOn(api, 'geocode').mockImplementation(async (q) => ({
@@ -32,13 +32,13 @@ describe('App shell', () => {
     }
     expect(screen.getByRole('combobox', { name: 'Origin' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Find my route' })).toBeInTheDocument();
-    expect(screen.getByText(/no forecast layer is displayed yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/48-hour forecast across the whole corridor/i)).toBeInTheDocument();
   });
 
-  it('renders routes and updates map data before any heatmap request, without refetching on selection', async () => {
+  it('renders routes before requesting the heatmap once, and does not refetch on selection', async () => {
     let finishPlan: (response: PlanResponse) => void = () => { throw new Error('Plan not pending'); };
     const planTrip = vi.spyOn(api, 'planTrip').mockReturnValue(new Promise((resolve) => { finishPlan = resolve; }));
-    const heatmap = vi.spyOn(api, 'heatmap');
+    const heatmap = vi.spyOn(api, 'heatmap').mockResolvedValue(testHeatmap);
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
     const user = userEvent.setup();
     await enterTrip(user);
@@ -50,10 +50,19 @@ describe('App shell', () => {
     expect(recommended).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('heading', { name: /Compare your routes/ })).toHaveFocus();
     expect(screen.getByRole('region', { name: 'Selected route' })).toHaveTextContent('Route B');
+    // The heatmap is requested only after routes are on screen, with the plan's corridor.
+    expect(await screen.findByRole('slider', { name: 'Forecast hour' })).toBeInTheDocument();
+    expect(heatmap).toHaveBeenCalledTimes(1);
+    expect(heatmap.mock.calls[0]?.[0]).toEqual({
+      bbox: testPlan.corridor.bbox,
+      route_geometries: testPlan.routes.map((route) => route.geometry),
+      start: planTrip.mock.calls[0]?.[0].departure,
+      load_lb: planTrip.mock.calls[0]?.[0].load_lb,
+    });
     await user.click(screen.getByRole('button', { name: 'Select Route A, rank 2' }));
     expect(screen.getByRole('region', { name: 'Selected route' })).toHaveTextContent('Route A');
     expect(planTrip).toHaveBeenCalledTimes(1);
-    expect(heatmap).not.toHaveBeenCalled();
+    expect(heatmap).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Edit trip' }));
     expect(screen.getByRole('combobox', { name: 'Origin' })).toHaveValue('Dallas, TX');
   });

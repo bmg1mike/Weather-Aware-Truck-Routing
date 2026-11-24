@@ -111,7 +111,12 @@ export interface HeatmapRequest {
 
 export interface HeatmapResponse {
   /** Parallel arrays: grid point i is at (lats[i], lons[i]). */
-  grid: { lats: number[]; lons: number[] };
+  grid: {
+    lats: number[];
+    lons: number[];
+    /** Every point lies on multiples of this spacing, so the grid can be drawn as a raster. */
+    spacing_deg: number;
+  };
   /** Always 49: departure-relative hours 0 to 48. */
   hours: number;
   /** Per hour, per grid point: level 0-4, or null when the forecast is unavailable. */

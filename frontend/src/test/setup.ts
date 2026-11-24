@@ -6,7 +6,8 @@ import { afterEach, beforeEach, vi } from 'vitest';
 vi.mock('maplibre-gl', () => {
   // Methods live on the prototype so tests can spy on them.
   class FakeMap {
-    sources = new Map<string, { setData: ReturnType<typeof vi.fn> }>();
+    sources = new Map<string, Record<'setData' | 'setCoordinates' | 'play' | 'pause', ReturnType<typeof vi.fn>>>();
+    layers = new Set<string>();
     listeners = new Map<string, ((event: unknown) => void)[]>();
     canvas = document.createElement('canvas');
     constructor(public options: { container: HTMLElement }) {}
@@ -27,9 +28,12 @@ vi.mock('maplibre-gl', () => {
       this.listeners.get(event)?.forEach((listener) => listener(data));
       return this;
     }
-    addSource(id: string) { this.sources.set(id, { setData: vi.fn() }); return this; }
+    addSource(id: string) { this.sources.set(id, { setData: vi.fn(), setCoordinates: vi.fn(), play: vi.fn(), pause: vi.fn() }); return this; }
     getSource(id: string) { return this.sources.get(id); }
-    addLayer() { return this; }
+    addLayer(layer: { id: string }) { this.layers.add(layer.id); return this; }
+    getLayer(id: string) { return this.layers.has(id) ? { id } : undefined; }
+    setLayoutProperty() { return this; }
+    once() { return this; }
     fitBounds() { return this; }
     getContainer() { return this.options.container; }
     getCanvas() { return this.canvas; }
@@ -59,6 +63,8 @@ vi.mock('maplibre-gl', () => {
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 
 beforeEach(() => {
+  // jsdom has no canvas backend; without this it logs "Not implemented" for every getContext.
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
   vi.stubGlobal('ResizeObserver', class {
     observe() {}

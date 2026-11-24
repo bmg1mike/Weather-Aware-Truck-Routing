@@ -17,13 +17,6 @@ def test_health(client):
     assert response.json() == {"status": "ok"}
 
 
-def test_heatmap_is_not_implemented_yet(client, heatmap_payload):
-    """Phase 5 replaces this with real heatmap tests."""
-    response = client.post("/api/trips/heatmap", heatmap_payload, format="json")
-    assert response.status_code == 501
-    assert error_of(response)["code"] == "not_implemented"
-
-
 # --- plan ----------------------------------------------------------------------------------------
 
 
@@ -89,6 +82,8 @@ def test_required_plan_fields(client, plan_payload, missing):
         ("route_geometries", ["a", "b", "c", "d"]),
         ("start", "2026-11-25T06:00:00"),
         ("load_lb", 0),
+        ("route_geometries", ["not a polyline!"]),
+        ("route_geometries", ["_p~iF~ps|U"]),  # a single point is not a route
     ],
 )
 def test_invalid_heatmap_fields(client, heatmap_payload, field, value):

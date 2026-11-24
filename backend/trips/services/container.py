@@ -10,6 +10,7 @@ from django.core.cache import caches
 
 from trips.errors import ProviderUnavailable
 from trips.services.geocoding import GeocodingProvider, TomTomGeocodingProvider
+from trips.services.heatmap import HeatmapBuilder
 from trips.services.planner import TripPlanner
 from trips.services.routing import TomTomRoutingProvider
 from trips.services.weather import OpenMeteoWeatherProvider, WeatherLookup
@@ -39,10 +40,17 @@ def get_geocoder() -> GeocodingProvider:
     return TomTomGeocodingProvider(http_client(), _tomtom_key(), caches["default"])
 
 
+def _weather() -> WeatherLookup:
+    return WeatherLookup(OpenMeteoWeatherProvider(http_client()), caches["default"])
+
+
+def get_heatmap_builder() -> HeatmapBuilder:
+    return HeatmapBuilder(_weather(), wind_source=settings.WIND_SOURCE)
+
+
 def get_planner() -> TripPlanner:
-    client = http_client()
     return TripPlanner(
-        TomTomRoutingProvider(client, _tomtom_key(), caches["default"]),
-        WeatherLookup(OpenMeteoWeatherProvider(client), caches["default"]),
+        TomTomRoutingProvider(http_client(), _tomtom_key(), caches["default"]),
+        _weather(),
         wind_source=settings.WIND_SOURCE,
     )

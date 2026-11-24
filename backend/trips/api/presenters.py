@@ -9,12 +9,14 @@ from itertools import pairwise
 from trips.api.contracts import (
     CheckpointJSON,
     GeocodeResponse,
+    HeatmapResponse,
     MilesByLevel,
     PlanResponse,
     RouteJSON,
     SegmentJSON,
 )
 from trips.domain import Checkpoint, Place, RiskLevel
+from trips.services.heatmap import HOURS, Frames, Grid
 from trips.services.planner import PlannedRoute, TripPlan
 from trips.services.sampling import cumulative_miles, encode_polyline
 from trips.services.scoring import segments
@@ -124,3 +126,18 @@ def plan_json(plan: TripPlan) -> PlanResponse:
 
 def geocode_json(places: list[Place]) -> GeocodeResponse:
     return {"results": [{"label": p.label, "lat": p.point.lat, "lon": p.point.lon} for p in places]}
+
+
+def heatmap_json(grid: Grid, frames: Frames) -> HeatmapResponse:
+    return {
+        "grid": {
+            "lats": [p.lat for p in grid.points],
+            "lons": [p.lon for p in grid.points],
+            "spacing_deg": grid.spacing_deg,
+        },
+        "hours": HOURS,
+        "risk": frames.risk,
+        "wind": frames.wind,
+        "rain": frames.rain,
+        "snow": frames.snow,
+    }

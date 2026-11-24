@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import type { Route } from '../api/types';
 import { CheckpointDetails } from '../components/CheckpointDetails';
 import { BASEMAP_STYLE_URL, INITIAL_VIEW, REQUIRED_ATTRIBUTION } from './attribution';
+import type { HeatmapController } from './heatmapLayer';
 import { checkpointFeatures, routeFeatures, segmentFeatures } from './routes';
 
 const EMPTY_ROUTES: Route[] = [];
@@ -28,7 +29,8 @@ function updateRoutes(map: maplibregl.Map, routes: Route[], selectedId: string |
     }
     const narrow = map.getContainer().clientWidth < 500;
     if (!bounds.isEmpty()) map.fitBounds(bounds, {
-      padding: { top: 100, bottom: 190, left: narrow ? 24 : 60, right: narrow ? 24 : 60 },
+      // Bottom padding clears the legend, route note and heatmap panel stacked over the map.
+      padding: { top: 100, bottom: narrow ? 190 : 320, left: narrow ? 24 : 60, right: narrow ? 24 : 60 },
       maxZoom: 11,
       duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 700,
     });
@@ -41,17 +43,21 @@ export function MapView({
   onSelect,
   checkpointIndex = null,
   onInspect,
+  heatmap,
 }: {
   routes?: Route[];
   selectedId?: string | null;
   onSelect?: (id: string) => void;
   checkpointIndex?: number | null;
   onInspect?: (routeId: string, index: number | null) => void;
+  /** Created once by the caller; attached when the map loads (after the route layers). */
+  heatmap?: HeatmapController;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
   const dataRef = useRef({ routes, selectedId, onSelect, onInspect });
+  const heatmapRef = useRef(heatmap);
   const [mapError, setMapError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [popupContainer] = useState(() => document.createElement('div'));
@@ -81,6 +87,7 @@ export function MapView({
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    const heatmapController = heatmapRef.current;
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
@@ -172,6 +179,7 @@ export function MapView({
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
       }
       updateRoutes(map, dataRef.current.routes, dataRef.current.selectedId, true);
+      heatmapController?.attach(map);
       setReady(true);
     });
     mapRef.current = map;
@@ -180,6 +188,7 @@ export function MapView({
     return () => {
       resizeObserver.disconnect();
       readyRef.current = false;
+      heatmapController?.detach();
       map.remove();
       mapRef.current = null;
     };

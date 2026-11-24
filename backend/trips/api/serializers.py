@@ -9,7 +9,8 @@ from typing import Any
 from django.utils import timezone
 from rest_framework import serializers
 
-from trips.domain import SAMPLING_INTERVALS_MI
+from trips.domain import SAMPLING_INTERVALS_MI, LatLon
+from trips.services.sampling import decode_polyline
 
 MIN_LOAD_LB = 1
 MAX_LOAD_LB = 80_000
@@ -117,6 +118,22 @@ class HeatmapRequestSerializer(serializers.Serializer[dict[str, Any]]):
 
     def validate_start(self, value: str) -> datetime:
         return parse_offset_datetime(value, past_grace=HEATMAP_START_PAST_GRACE)
+
+    def validate_route_geometries(self, value: list[str]) -> list[list[LatLon]]:
+        routes = []
+        for encoded in value:
+            try:
+                points = decode_polyline(encoded)
+            except ValueError as exc:
+                raise serializers.ValidationError(
+                    "Each route must be an encoded polyline."
+                ) from exc
+            if len(points) < 2 or not all(
+                -90 <= p.lat <= 90 and -180 <= p.lon <= 180 for p in points
+            ):
+                raise serializers.ValidationError("Each route must be an encoded polyline.")
+            routes.append(points)
+        return routes
 
     def validate_bbox(self, value: list[float]) -> tuple[float, float, float, float]:
         min_lon, min_lat, max_lon, max_lat = value

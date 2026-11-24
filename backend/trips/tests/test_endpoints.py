@@ -184,3 +184,61 @@ def test_missing_tomtom_key_is_a_readable_502(client, plan_payload, settings):
     response = post_plan(client, plan_payload)
     assert response.status_code == 502
     assert "not configured" in response.json()["error"]["message"]
+
+
+# --- heatmap --------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def use_heatmap(monkeypatch, request):
+    from trips.services.heatmap import HeatmapBuilder
+
+    def install(conditions=lambda c, h: CALM):
+        weather = FakeWeather(conditions)
+        lookup = WeatherLookup(weather, LocMemCache(request.node.nodeid, {}))
+        monkeypatch.setattr("trips.api.views.get_heatmap_builder", lambda: HeatmapBuilder(lookup))
+        return weather
+
+    return install
+
+
+def heatmap_request(payload_overrides=None):
+    from trips.services.sampling import encode_polyline
+    from trips.tests.helpers import heatmap_payload
+
+    line = [LatLon(32.8 + 6.9 * i / 50, -96.8 - 8.2 * i / 50) for i in range(51)]
+    return heatmap_payload(
+        bbox=[-105.5, 32.3, -96.3, 40.2],
+        route_geometries=[encode_polyline(line)],
+        **(payload_overrides or {}),
+    )
+
+
+def test_heatmap_response_matches_the_contract(client, use_heatmap):
+    use_heatmap(lambda c, h: HourValues(30.0, 40.0, 0.0, 0.0, 0.0))
+    response = client.post("/api/trips/heatmap", heatmap_request(), format="json")
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert set(body) == {"grid", "hours", "risk", "wind", "rain", "snow"}
+    assert body["hours"] == 49
+    grid = body["grid"]
+    assert set(grid) == {"lats", "lons", "spacing_deg"}
+    n = len(grid["lats"])
+    assert 0 < n <= 200 and len(grid["lons"]) == n
+    assert grid["spacing_deg"] >= 0.3
+    for key in ("risk", "wind", "rain", "snow"):
+        assert len(body[key]) == 49 and all(len(frame) == n for frame in body[key])
+    assert set(body["risk"][0]) == {1}  # 30 mph is Moderate everywhere
+    assert set(body["wind"][0]) == {30.0}
+
+
+def test_heatmap_requests_at_most_200_weather_locations(client, use_heatmap):
+    weather = use_heatmap()
+    client.post("/api/trips/heatmap", heatmap_request(), format="json")
+    assert 0 < len(set(weather.requested_cells)) <= 200
+
+
+def test_heatmap_unknown_cells_are_null(client, use_heatmap):
+    use_heatmap(lambda c, h: HourValues(None, None, None, None, None))
+    body = client.post("/api/trips/heatmap", heatmap_request(), format="json").json()
+    assert set(body["risk"][0]) == {None}

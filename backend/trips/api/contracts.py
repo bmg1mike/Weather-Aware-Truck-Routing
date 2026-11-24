@@ -130,6 +130,9 @@ class HeatmapRequest(TypedDict):
 class GridJSON(TypedDict):
     lats: list[float]
     lons: list[float]
+    """Parallel arrays: grid point i is at (lats[i], lons[i]); row-major, south to north."""
+    spacing_deg: float
+    """Every point lies on multiples of this spacing, so the grid can be drawn as a raster."""
 
 
 class HeatmapResponse(TypedDict):

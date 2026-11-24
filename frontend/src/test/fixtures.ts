@@ -1,4 +1,4 @@
-import type { PlanResponse, Route } from '../api/types';
+import type { HeatmapResponse, PlanResponse, Route } from '../api/types';
 
 export const testRoute: Route = {
   id: 'r1',
@@ -44,4 +44,13 @@ export const testPlan: PlanResponse = {
   no_safe_route: false,
   routes: [recommendedRoute, testRoute],
   corridor: { bbox: [-127, 38, -120, 44] },
+};
+
+export const testHeatmap: HeatmapResponse = {
+  grid: { lats: [40, 40.3], lons: [-122, -122], spacing_deg: 0.3 },
+  hours: 49,
+  risk: Array.from({ length: 49 }, () => [0, 2]),
+  wind: Array.from({ length: 49 }, () => [5, 38]),
+  rain: Array.from({ length: 49 }, () => [0, 0]),
+  snow: Array.from({ length: 49 }, () => [0, 0]),
 };
