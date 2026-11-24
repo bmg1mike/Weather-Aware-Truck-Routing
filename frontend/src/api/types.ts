@@ -54,13 +54,21 @@ export interface Checkpoint {
 export type MilesByLevel = Record<RiskLevelKey, number>;
 
 export interface RouteSummary {
+  /** Known-forecast miles only. sum(miles_by_level) + unknown_mi === distance_mi. */
   miles_by_level: MilesByLevel;
-  avg_risk: number;
+  /** Miles on segments touching a checkpoint with no forecast; never counted as Low. */
+  unknown_mi: number;
+  /** Distance-weighted 0-4 over known miles; null when no segment has a forecast. */
+  avg_risk: number | null;
   unknown_checkpoints: number;
+  /** [start_mi, end_mi] ranges at No Travel, for the "no safe route" banner. */
+  no_travel_stretches: [number, number][];
 }
 
 export interface Route {
   id: string;
+  /** Display name in provider order, e.g. "Route A"; used by reason sentences. */
+  name: string;
   rank: number;
   reason: string;
   distance_mi: number;

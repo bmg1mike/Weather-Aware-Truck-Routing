@@ -99,6 +99,8 @@ else:
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "truck-routing",
+            # Weather is cached per cell and hour: one long trip alone exceeds the default 300.
+            "OPTIONS": {"MAX_ENTRIES": 50_000},
         }
     }
 
@@ -115,6 +117,9 @@ REST_FRAMEWORK = {
 # --- Providers (server-side only; never sent to the frontend) ----------------------------------
 TOMTOM_API_KEY = os.environ.get("TOMTOM_API_KEY", "")
 
+# Per-attempt provider timeout; one retry follows (spec section 10).
+PROVIDER_TIMEOUT_S = 8.0
+
 WindSource = Literal["sustained", "gust"]
 _wind_source = os.environ.get("WIND_SOURCE", "sustained").strip().lower() or "sustained"
 if _wind_source not in ("sustained", "gust"):
@@ -127,4 +132,9 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "INFO"},
+    # httpx logs every request URL at INFO; TomTom URLs carry the API key. Never lower these.
+    "loggers": {
+        "httpx": {"level": "WARNING"},
+        "httpcore": {"level": "WARNING"},
+    },
 }

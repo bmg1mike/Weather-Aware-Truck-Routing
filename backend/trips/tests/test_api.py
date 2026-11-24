@@ -17,23 +17,14 @@ def test_health(client):
     assert response.json() == {"status": "ok"}
 
 
-@pytest.mark.parametrize(
-    ("method", "url", "payload_fixture"),
-    [
-        ("post", "/api/trips/plan", "plan_payload"),
-        ("post", "/api/trips/heatmap", "heatmap_payload"),
-        ("get", "/api/geocode?q=Dallas", None),
-    ],
-)
-def test_valid_requests_reach_unimplemented_stub(client, request, method, url, payload_fixture):
-    """Phase 1 only: replace with real behaviour tests as each endpoint lands."""
-    payload = request.getfixturevalue(payload_fixture) if payload_fixture else None
-    response = getattr(client, method)(url, payload, format="json")
+def test_heatmap_is_not_implemented_yet(client, heatmap_payload):
+    """Phase 5 replaces this with real heatmap tests."""
+    response = client.post("/api/trips/heatmap", heatmap_payload, format="json")
     assert response.status_code == 501
     assert error_of(response)["code"] == "not_implemented"
 
 
-# --- plan ---------------------------------------------------------------------------------------
+# --- plan ----------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -60,7 +51,8 @@ def test_invalid_plan_fields(client, plan_payload, field, value):
 
 
 @pytest.mark.parametrize(
-    ("key", "value"), [("lat", 91), ("lon", -181), ("lat", "nan"), ("lon", "inf"), ("label", "")]
+    ("key", "value"),
+    [("lat", 91), ("lon", -181), ("lat", "nan"), ("lon", "inf"), ("label", ""), ("lat", 51.5)],
 )
 def test_invalid_place(client, plan_payload, key, value):
     plan_payload["origin"][key] = value
@@ -84,7 +76,7 @@ def test_required_plan_fields(client, plan_payload, missing):
     assert error_of(response)["message"].startswith(f"{missing}:")
 
 
-# --- heatmap ------------------------------------------------------------------------------------
+# --- heatmap -------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -106,7 +98,7 @@ def test_invalid_heatmap_fields(client, heatmap_payload, field, value):
     assert error_of(response)["message"].startswith(f"{field}")
 
 
-# --- geocode ------------------------------------------------------------------------------------
+# --- geocode -------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("query", [None, "", "Da", "  D  "])

@@ -74,3 +74,16 @@ def test_dotenv_strips_quotes_and_export(monkeypatch, tmp_path, line):
     import os
 
     assert os.environ["TOMTOM_API_KEY"] == "abc"
+
+
+def test_http_client_logging_cannot_print_provider_urls(monkeypatch):
+    # httpx logs full request URLs at INFO, which would include the TomTom key.
+    settings = load_settings(monkeypatch, DJANGO_SECRET_KEY="x")
+    for name in ("httpx", "httpcore"):
+        assert settings.LOGGING["loggers"][name]["level"] == "WARNING"
+
+
+def test_local_cache_holds_a_full_trip(monkeypatch):
+    # A 1,000 mi trip at 10 mi needs ~300 cells x 2 hours plus routes; Django's default is 300.
+    settings = load_settings(monkeypatch, DJANGO_SECRET_KEY="x")
+    assert settings.CACHES["default"]["OPTIONS"]["MAX_ENTRIES"] >= 10_000

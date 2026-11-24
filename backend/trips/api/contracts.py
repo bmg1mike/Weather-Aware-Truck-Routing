@@ -20,7 +20,7 @@ class ErrorResponse(TypedDict):
     error: ErrorDetail
 
 
-# --- GET /api/geocode?q= ------------------------------------------------------------------------
+# --- GET /api/geocode?q= -------------------------------------------------------------------------
 
 
 class PlaceJSON(TypedDict):
@@ -34,7 +34,7 @@ class GeocodeResponse(TypedDict):
     """Up to five suggestions."""
 
 
-# --- POST /api/trips/plan -----------------------------------------------------------------------
+# --- POST /api/trips/plan ------------------------------------------------------------------------
 
 
 class PlanRequest(TypedDict):
@@ -70,12 +70,20 @@ class MilesByLevel(TypedDict):
 
 class RouteSummaryJSON(TypedDict):
     miles_by_level: MilesByLevel
-    avg_risk: float
+    """Known-forecast miles only. ``sum(miles_by_level) + unknown_mi == distance_mi``."""
+    unknown_mi: float
+    """Miles on segments touching a checkpoint with no forecast; never counted as Low."""
+    avg_risk: float | None
+    """Distance-weighted 0-4 over known miles; null when no segment has a forecast."""
     unknown_checkpoints: int
+    no_travel_stretches: list[tuple[float, float]]
+    """[start_mi, end_mi] ranges at No Travel, for the "no safe route" banner."""
 
 
 class RouteJSON(TypedDict):
     id: str
+    name: str
+    """Display name in provider order, e.g. "Route A"; used by reason sentences."""
     rank: int
     reason: str
     distance_mi: float
@@ -99,7 +107,7 @@ class PlanResponse(TypedDict):
     corridor: CorridorJSON
 
 
-# --- POST /api/trips/heatmap --------------------------------------------------------------------
+# --- POST /api/trips/heatmap ---------------------------------------------------------------------
 
 
 class HeatmapRequest(TypedDict):

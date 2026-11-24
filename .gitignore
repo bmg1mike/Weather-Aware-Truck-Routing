@@ -25,3 +25,6 @@ coverage/
 spec.md
 plan.md
 CLAUDE.md
+
+# Provider smoke-test output
+backend/smoke-results.json

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 // MapLibre needs WebGL, which jsdom lacks. Tests assert on our wiring, not on rendering tiles.
 vi.mock('maplibre-gl', () => {
@@ -10,13 +10,22 @@ vi.mock('maplibre-gl', () => {
       return this;
     }
     remove() {}
+    on() { return this; }
+    resize() {}
   }
   class FakeControl {
     constructor(public options?: unknown) {}
   }
-  return { Map: FakeMap, AttributionControl: FakeControl, NavigationControl: FakeControl };
+  return { Map: FakeMap, AttributionControl: FakeControl, NavigationControl: FakeControl, setWorkerUrl: vi.fn() };
 });
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
+
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    disconnect() {}
+  });
+});
 
 afterEach(() => {
   cleanup();

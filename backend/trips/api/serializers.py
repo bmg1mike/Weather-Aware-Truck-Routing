@@ -49,11 +49,31 @@ class FiniteFloatField(serializers.FloatField):
         return value
 
 
+# [ASSUMPTION] US only (spec section 3). Approximate boxes for the contiguous US, Alaska and
+# Hawaii; geocoding is already restricted to US results, so this catches hand-made requests.
+US_BOUNDS: tuple[tuple[float, float, float, float], ...] = (
+    (24.3, 49.5, -125.0, -66.8),  # (min_lat, max_lat, min_lon, max_lon)
+    (51.0, 71.5, -180.0, -129.9),
+    (18.8, 22.4, -160.4, -154.7),
+)
+
+
+def in_us(lat: float, lon: float) -> bool:
+    return any(a <= lat <= b and c <= lon <= d for a, b, c, d in US_BOUNDS)
+
+
 class PlaceSerializer(serializers.Serializer[dict[str, Any]]):
     # The wire name "label" shadows DRF's Field.label attribute in the type stubs only.
     label = serializers.CharField(max_length=200, trim_whitespace=True)  # type: ignore[assignment]
     lat = FiniteFloatField(min_value=-90, max_value=90)
     lon = FiniteFloatField(min_value=-180, max_value=180)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not in_us(attrs["lat"], attrs["lon"]):
+            raise serializers.ValidationError(
+                {"lat": "Only places in the United States are supported."}
+            )
+        return attrs
 
 
 class LoadField(serializers.IntegerField):

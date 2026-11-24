@@ -67,6 +67,19 @@ class ProviderRateLimited(ApiError):
         return {"Retry-After": str(self.retry_after_s)}
 
 
+class NoRouteFound(ApiError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "no_route"
+    default_message = "No truck route was found between these places."
+
+
+class BudgetExceeded(ApiError):
+    """The trip needs more weather locations than the free-tier budget allows (spec section 5)."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    code = "budget_exceeded"
+
+
 class NotImplementedYet(ApiError):
     status_code = status.HTTP_501_NOT_IMPLEMENTED
     code = "not_implemented"
