@@ -1,8 +1,10 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import * as maplibregl from 'maplibre-gl';
 import { describe, expect, it, vi } from 'vitest';
 
 import { MapView } from './MapView';
+import { atlasStyle } from './basemap';
+import { INITIAL_VIEW } from './attribution';
 import { testPlan } from '../test/fixtures';
 
 describe('MapView', () => {
@@ -40,6 +42,9 @@ describe('MapView', () => {
       source: 'trip-segments',
       paint: { 'line-color': ['get', 'colour'] },
     });
+    for (const [layer, beforeId] of addLayer.mock.calls) {
+      if (layer.id.startsWith('trip-')) expect(beforeId).toBe('basemap-labels');
+    }
     const segmentSource = getSource.mock.results.find((_, index) => getSource.mock.calls[index]?.[0] === 'trip-segments')?.value;
     const setData = vi.spyOn(segmentSource, 'setData');
     rerender(<MapView routes={testPlan.routes} selectedId="r2" />);
@@ -89,5 +94,39 @@ describe('MapView', () => {
     rerender(<MapView routes={testPlan.routes} selectedId="r1" bottomInset={420} />);
     expect(fitBounds).toHaveBeenCalledTimes(2);
     expect(addSource).toHaveBeenCalledTimes(3);
+  });
+
+  it('restores the world view and fits the trip without recreating map sources', () => {
+    const easeTo = vi.spyOn(maplibregl.Map.prototype, 'easeTo');
+    const fitBounds = vi.spyOn(maplibregl.Map.prototype, 'fitBounds');
+    const addSource = vi.spyOn(maplibregl.Map.prototype, 'addSource');
+    render(<MapView routes={testPlan.routes} selectedId="r2" />);
+    fireEvent.click(screen.getByRole('button', { name: 'World view' }));
+    expect(easeTo).toHaveBeenCalledWith(expect.objectContaining(INITIAL_VIEW));
+    fireEvent.click(screen.getByRole('button', { name: 'Fit routes' }));
+    expect(fitBounds).toHaveBeenCalledTimes(2);
+    expect(addSource).toHaveBeenCalledTimes(3);
+  });
+
+  it('enhances place names without replacing provider resources or highway references', () => {
+    const original: maplibregl.StyleSpecification = {
+      version: 8,
+      sources: { base: { type: 'vector', url: 'https://example.com/tiles.json' } },
+      glyphs: 'https://example.com/fonts/{fontstack}/{range}.pbf',
+      layers: [
+        { id: 'label_country_1', type: 'symbol', source: 'base', 'source-layer': 'place', layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'] } },
+        { id: 'highway-shield', type: 'symbol', source: 'base', 'source-layer': 'transportation_name', layout: { 'text-field': ['get', 'ref'] } },
+        { id: 'poi-icon', type: 'symbol', source: 'base', layout: { 'icon-image': 'station' } },
+      ],
+    };
+    const styled = atlasStyle(original);
+    expect(styled.sources).toBe(original.sources);
+    expect(styled.glyphs).toBe(original.glyphs);
+    expect(styled.layers[0]).toMatchObject({
+      layout: { 'text-font': ['Noto Sans Bold'], 'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name:latin'], ['get', 'name']] },
+    });
+    expect(styled.layers[1]).toMatchObject({ layout: { 'text-field': ['get', 'ref'] } });
+    expect(styled.layers[2]).toBe(original.layers[2]);
+    expect(original.layers[0]).toMatchObject({ layout: { 'text-field': ['get', 'name'] } });
   });
 });

@@ -6,7 +6,9 @@ import { createPortal } from 'react-dom';
 
 import type { Route } from '../api/types';
 import { CheckpointDetails } from '../components/CheckpointDetails';
+import { Icon } from '../components/Icon';
 import { BASEMAP_STYLE_URL, INITIAL_VIEW, REQUIRED_ATTRIBUTION } from './attribution';
+import { atlasStyle } from './basemap';
 import type { HeatmapController } from './heatmapLayer';
 import { checkpointFeatures, routeFeatures, segmentFeatures } from './routes';
 
@@ -96,6 +98,7 @@ export function MapView({
       map = new maplibregl.Map({
         container: containerRef.current,
         style: BASEMAP_STYLE_URL,
+        transformStyle: (_previous, next) => atlasStyle(next),
         center: INITIAL_VIEW.center,
         zoom: INITIAL_VIEW.zoom,
         attributionControl: false,
@@ -109,10 +112,13 @@ export function MapView({
       new maplibregl.AttributionControl({ compact: false, customAttribution: [...REQUIRED_ATTRIBUTION] }),
     );
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'imperial', maxWidth: 100 }), 'bottom-right');
     map.on('error', () => setMapError('Some map tiles could not load. Check your connection. Your trip details are still available.'));
     map.on('load', () => {
       setMapError(null);
       readyRef.current = true;
+      // Geographic names stay above both the forecast raster and the road-risk overlays.
+      const firstLabel = map.getStyle().layers.find((layer) => layer.type === 'symbol' && layer.layout?.['text-field'] !== undefined)?.id;
       map.addSource('trip-routes', { type: 'geojson', data: routeFeatures([], null) });
       map.addSource('trip-segments', { type: 'geojson', data: segmentFeatures([], null) });
       map.addSource('trip-checkpoints', { type: 'geojson', data: checkpointFeatures([], null) });
@@ -126,7 +132,7 @@ export function MapView({
           'line-width': ['case', ['get', 'selected'], 9, 6],
           'line-opacity': ['case', ['get', 'selected'], 0.95, 0.35],
         },
-      });
+      }, firstLabel);
       map.addLayer({
         id: 'trip-route-lines',
         type: 'line',
@@ -138,7 +144,7 @@ export function MapView({
           'line-width': ['case', ['get', 'selected'], 5, 3],
           'line-opacity': ['case', ['get', 'selected'], 1, 0.35],
         },
-      });
+      }, firstLabel);
       map.addLayer({
         id: 'trip-unknown-lines',
         type: 'line',
@@ -151,7 +157,7 @@ export function MapView({
           'line-opacity': ['case', ['get', 'selected'], 1, 0.35],
           'line-dasharray': [2, 2],
         },
-      });
+      }, firstLabel);
       map.addLayer({
         id: 'trip-checkpoint-dots',
         type: 'circle',
@@ -164,7 +170,7 @@ export function MapView({
           'circle-stroke-color': '#ffffff',
           'circle-stroke-opacity': ['case', ['get', 'selected'], 1, 0.35],
         },
-      });
+      }, firstLabel);
       map.on('click', (event) => {
         const features = map.queryRenderedFeatures(event.point, { layers: ['trip-checkpoint-dots', 'trip-route-lines', 'trip-unknown-lines'] });
         const feature = features.find((item) => item.layer.id === 'trip-checkpoint-dots') ?? features[0];
@@ -200,6 +206,10 @@ export function MapView({
   return (
     <>
       <div ref={containerRef} className="map" role="region" aria-label="Route map" />
+      <div className="map-tools" role="group" aria-label="Map view controls">
+        <button type="button" disabled={!ready} aria-label="World view" title="World view" onClick={() => mapRef.current?.easeTo({ ...INITIAL_VIEW, duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 700 })}><Icon name="globe" size={18} /></button>
+        {routes.length > 0 && <button type="button" disabled={!ready} aria-label="Fit routes" title="Fit routes" onClick={() => { if (mapRef.current) updateRoutes(mapRef.current, routes, selectedId, true, bottomInset); }}><Icon name="route" size={18} /></button>}
+      </div>
       {checkpoint && inspectedRoute && createPortal(<CheckpointDetails checkpoint={checkpoint} routeName={inspectedRoute.name} />, popupContainer)}
       {mapError && <p className="map-error" role="alert">{mapError}</p>}
     </>

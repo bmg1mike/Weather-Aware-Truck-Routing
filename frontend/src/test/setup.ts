@@ -35,6 +35,8 @@ vi.mock('maplibre-gl', () => {
     setLayoutProperty() { return this; }
     once() { return this; }
     fitBounds() { return this; }
+    easeTo() { return this; }
+    getStyle() { return { layers: [{ id: 'basemap-labels', type: 'symbol', layout: { 'text-field': ['get', 'name'] } }] }; }
     getContainer() { return this.options.container; }
     getCanvas() { return this.canvas; }
     queryRenderedFeatures() { return []; }
@@ -58,7 +60,7 @@ vi.mock('maplibre-gl', () => {
   class FakeControl {
     constructor(public options?: unknown) {}
   }
-  return { Map: FakeMap, AttributionControl: FakeControl, NavigationControl: FakeControl, LngLatBounds: FakeBounds, Popup: FakePopup, setWorkerUrl: vi.fn() };
+  return { Map: FakeMap, AttributionControl: FakeControl, NavigationControl: FakeControl, ScaleControl: FakeControl, LngLatBounds: FakeBounds, Popup: FakePopup, setWorkerUrl: vi.fn() };
 });
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 

@@ -186,9 +186,8 @@ export function App() {
           )}
           {!hasRoutes && !plan.isPending && (
             <div className="map-empty">
-              <span className="map-empty-icon"><Icon name="route" size={26} /></span>
-              <h2>{plan.data ? <>No route found.<br /><em>A different way?</em></> : <>The road ahead,<br /><em>in focus.</em></>}</h2>
-              <p>{plan.data ? 'Try another origin or destination to explore a different journey.' : <>Start with a destination.<br />We’ll help you see the way forward.</>}</p>
+              <h2>{plan.data ? 'No route found.' : 'Explore the world.'}</h2>
+              <p>{plan.data ? 'Try another origin or destination to explore a different journey.' : 'Country borders, cities and roads. Zoom in for more detail.'}</p>
               <a className="map-empty-link" href="#trip-planner" onClick={(event) => goTo(event, 'planner', 'trip-planner')}>{plan.data ? 'Adjust your trip' : 'Start with your trip'}<Icon name="arrow" size={16} /></a>
             </div>
           )}

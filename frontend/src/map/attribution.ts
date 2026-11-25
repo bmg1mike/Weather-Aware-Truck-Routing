@@ -8,5 +8,5 @@ export const REQUIRED_ATTRIBUTION: readonly string[] = [
 
 export const BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 
-/** Continental US, used before a trip is planned. */
-export const INITIAL_VIEW = { center: [-98.5, 39.5] as [number, number], zoom: 3.6 };
+/** World overview, used before a trip is planned and by the World view control. */
+export const INITIAL_VIEW = { center: [10, 20] as [number, number], zoom: 1.8 };
