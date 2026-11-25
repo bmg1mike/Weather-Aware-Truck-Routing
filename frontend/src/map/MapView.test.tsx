@@ -115,7 +115,7 @@ describe('MapView', () => {
       glyphs: 'https://example.com/fonts/{fontstack}/{range}.pbf',
       layers: [
         { id: 'label_country_1', type: 'symbol', source: 'base', 'source-layer': 'place', layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'] } },
-        { id: 'highway-shield', type: 'symbol', source: 'base', 'source-layer': 'transportation_name', layout: { 'text-field': ['get', 'ref'] } },
+        { id: 'highway-shield', type: 'symbol', source: 'base', 'source-layer': 'transportation_name', layout: { 'text-field': ['get', 'ref'], 'text-font': ['Noto Sans Bold'] } },
         { id: 'poi-icon', type: 'symbol', source: 'base', layout: { 'icon-image': 'station' } },
       ],
     };
@@ -123,9 +123,14 @@ describe('MapView', () => {
     expect(styled.sources).toBe(original.sources);
     expect(styled.glyphs).toBe(original.glyphs);
     expect(styled.layers[0]).toMatchObject({
-      layout: { 'text-font': ['Noto Sans Bold'], 'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name:latin'], ['get', 'name']] },
+      layout: {
+        'text-font': ['Noto Sans Regular'],
+        'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name_en'], ['get', 'name:latin'], ['get', 'name']],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 1, 11, 5, 14],
+        'text-transform': 'none',
+      },
     });
-    expect(styled.layers[1]).toMatchObject({ layout: { 'text-field': ['get', 'ref'] } });
+    expect(styled.layers[1]).toMatchObject({ layout: { 'text-field': ['get', 'ref'], 'text-font': ['Noto Sans Bold'] } });
     expect(styled.layers[2]).toBe(original.layers[2]);
     expect(original.layers[0]).toMatchObject({ layout: { 'text-field': ['get', 'name'] } });
   });

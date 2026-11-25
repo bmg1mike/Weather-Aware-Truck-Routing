@@ -49,7 +49,7 @@ Built for the Spotter Full Stack Developer assessment. The brief puts correctnes
 - **Route summaries:** miles at each risk level, distance-weighted average risk, distance, duration, arrival time, and any forecast gaps.
 - **A recommendation** with a one-sentence reason, for example "Recommended: fewest Severe miles (0.0 vs 42.0 on Route B), 18 min slower." If every route crosses a No Travel stretch, the least-bad route is marked as such and a blocking banner names the stretch.
 - **Map:**
-  - World overview with high-contrast country, city and road labels above route and weather overlays.
+  - World overview with smaller, regular-weight country names and clear city and road labels above route and weather overlays.
   - World view and Fit routes controls, plus an imperial distance scale.
   - All routes coloured by segment risk; unselected routes are dimmed.
   - Checkpoint dots with a popup showing ETA, wind, gusts, rain, snow, level and driver.
