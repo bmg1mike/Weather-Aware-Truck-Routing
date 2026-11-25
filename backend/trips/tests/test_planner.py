@@ -324,25 +324,6 @@ def test_provider_errors_on_via_requests_do_not_fail_the_plan(name, error):
     assert len(via_planner(routing, name).plan(plan_input()).routes) == 1
 
 
-def test_via_points_outside_the_us_are_not_requested(name):
-    # A route hugging the Canadian border: the west/north via point would land in Canada.
-    border = RouteOption(
-        id="r1",
-        points=tuple(LatLon(49.2, -122 + 20 * i / 100) for i in range(101)),
-        distance_mi=900,
-        duration_s=13 * 3600,
-        departure=DEPART,
-        arrival=DEPART + timedelta(hours=13),
-    )
-    routing = ViaRouting([border])
-    via_planner(routing, name).plan(plan_input())
-    via_points = [c["via"][0] for c in routing.via_calls()]
-    assert via_points and all(v.lat < 49.5 for v in via_points)  # the Canadian side is never sent
-
-
-# --- shared 500-location budget (spec section 5, plan phase 5) -----------------------------------
-
-
 def test_heatmap_gets_the_budget_left_after_checkpoints(name):
     # 3 separate 1,000 mi routes at 10 mi: 3 x 101 checkpoints in distinct cells.
     routes = [north_route(f"r{i}", 1000, 15, lon=-100 - i) for i in range(1, 4)]

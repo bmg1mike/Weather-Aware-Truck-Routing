@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from './api/client';
 import type { HeatmapResponse, PlanRequest } from './api/types';
@@ -16,10 +16,15 @@ import { MapView } from './map/MapView';
 // Module-level so TanStack Query memoises the typed-array conversion per response.
 const selectFrames = (response: HeatmapResponse) => toFrames(response);
 
+/** Desktop shows one view at a time when chosen from the header; stacked layouts just scroll. */
+type WorkspaceView = 'planner' | 'map';
+
 export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [checkpointIndex, setCheckpointIndex] = useState<number | null>(null);
   const [editing, setEditing] = useState(true);
+  const [view, setView] = useState<WorkspaceView>('planner');
+  const [focusRequest, setFocusRequest] = useState<{ id: string } | null>(null);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
   const mapDock = useRef<HTMLDivElement>(null);
   const [mapBottomInset, setMapBottomInset] = useState(320);
@@ -99,9 +104,23 @@ export function App() {
     };
   }, []);
 
+  /** In-page navigation: switch view, then focus (and on small screens scroll to) the target. */
+  const goTo = useCallback((event: MouseEvent<HTMLAnchorElement>, next: WorkspaceView, targetId: string) => {
+    event.preventDefault();
+    setView(next);
+    setFocusRequest({ id: targetId });
+  }, []);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const target = document.getElementById(focusRequest.id);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [focusRequest]);
+
   return (
-    <div className={`app-shell ${hasRoutes ? 'app-shell--planned' : ''}`}>
-      <a className="skip-link" href="#trip-planner">Skip to trip planner</a>
+    <div className={`app-shell ${hasRoutes ? 'app-shell--planned' : ''} ${view === 'map' ? 'app-shell--map-view' : ''}`}>
+      <a className="skip-link" href="#trip-planner" onClick={(event) => goTo(event, 'planner', 'trip-planner')}>Skip to trip planner</a>
       <header className="app-header">
         <a className="brand" href="./" aria-label="Waypoint home">
           <span className="brand-symbol"><Icon name="compass" size={27} /></span>
@@ -110,10 +129,10 @@ export function App() {
         <div className="header-divider" />
         <h1>Weather-aware truck routing</h1>
         <nav className="workspace-nav" aria-label="Workspace">
-          <a className="workspace-nav-current" href="#trip-planner"><Icon name="route" size={16} />Trip planner</a>
-          <a href="#journey-map" aria-label="View map and forecast"><Icon name="layers" size={16} /><span className="nav-full-label">Map & forecast</span><span className="nav-short-label">Map</span></a>
+          <a className={view === 'planner' ? 'workspace-nav-current' : undefined} aria-current={view === 'planner' ? 'true' : undefined} href="#trip-planner" onClick={(event) => goTo(event, 'planner', 'trip-planner')}><Icon name="route" size={16} />Trip planner</a>
+          <a className={view === 'map' ? 'workspace-nav-current' : undefined} aria-current={view === 'map' ? 'true' : undefined} href="#journey-map" aria-label="View map and forecast" onClick={(event) => goTo(event, 'map', 'journey-map')}><Icon name="layers" size={16} /><span className="nav-full-label">Map & forecast</span><span className="nav-short-label">Map</span></a>
         </nav>
-        <div className="header-end"><span className="header-country">United States</span><span className="version-badge">BETA</span></div>
+        <div className="header-end"><span className="header-country">Worldwide</span><span className="version-badge">BETA</span></div>
       </header>
 
       <div className="workspace">
@@ -148,13 +167,13 @@ export function App() {
             {plan.isPending && <div className="loading-routes" role="status" aria-label="Comparing routes"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /><p>Finding the road with fewer surprises…<br />Routes and forecasts can take a few seconds.</p></div>}
             {plan.data && !plan.isPending && <RouteResults plan={plan.data} selectedId={selectedId} checkpointIndex={checkpointIndex} onSelect={selectRoute} onInspect={setCheckpointIndex} headingRef={resultsHeading} />}
           </div>
-          <footer className="planner-footer"><span className="footer-mark"><Icon name="compass" size={16} /> Foresight for every mile.</span><span>US / MI / LB</span></footer>
+          <footer className="planner-footer"><span className="footer-mark"><Icon name="compass" size={16} /> Foresight for every mile.</span><span>MI · MPH · LB</span></footer>
         </aside>
 
         <main className="map-area" aria-label="Journey overview" id="journey-map" tabIndex={-1}>
           <MapView routes={plan.data?.routes} selectedId={selectedId} onSelect={selectRoute} checkpointIndex={checkpointIndex} onInspect={inspectCheckpoint} heatmap={heatmapController} bottomInset={mapBottomInset} />
           <div className="map-topline">
-            <div className="map-view-label"><Icon name="layers" size={15} /><span>JOURNEY ATLAS</span><span className="map-view-divider" /><span className="map-region">Contiguous United States</span></div>
+            <div className="map-view-label"><Icon name="layers" size={15} /><span>JOURNEY ATLAS</span><span className="map-view-divider" /><span className="map-region">{hasRoutes && plan.variables ? `${plan.variables.origin.label} → ${plan.variables.destination.label}` : 'Worldwide'}</span></div>
           </div>
           {selectedRoute && (
             <section className="map-route-context" aria-label="Selected route">
@@ -162,7 +181,7 @@ export function App() {
                 <span className="map-route-eyebrow">{selectedRoute.id === plan.data?.recommended_route_id ? plan.data.no_safe_route ? 'LEAST-BAD OPTION' : 'RECOMMENDED ROUTE' : 'ALTERNATIVE ROUTE'}</span>
                 <h2>{selectedRoute.name}<span>{formatDuration(selectedRoute.duration_s)}<span aria-hidden="true"> / </span>{selectedRoute.distance_mi.toLocaleString([], { maximumFractionDigits: 1 })} mi</span></h2>
               </div>
-              <a className="map-compare-link" href="#route-options" aria-label="Compare routes"><Icon name="arrow" size={19} /></a>
+              <a className="map-compare-link" href="#route-options" aria-label="Compare routes" onClick={(event) => goTo(event, 'planner', 'route-options')}><Icon name="arrow" size={19} /></a>
             </section>
           )}
           {!hasRoutes && !plan.isPending && (
@@ -170,7 +189,7 @@ export function App() {
               <span className="map-empty-icon"><Icon name="route" size={26} /></span>
               <h2>{plan.data ? <>No route found.<br /><em>A different way?</em></> : <>The road ahead,<br /><em>in focus.</em></>}</h2>
               <p>{plan.data ? 'Try another origin or destination to explore a different journey.' : <>Start with a destination.<br />We’ll help you see the way forward.</>}</p>
-              <a className="map-empty-link" href="#trip-planner">{plan.data ? 'Adjust your trip' : 'Start with your trip'}<Icon name="arrow" size={16} /></a>
+              <a className="map-empty-link" href="#trip-planner" onClick={(event) => goTo(event, 'planner', 'trip-planner')}>{plan.data ? 'Adjust your trip' : 'Start with your trip'}<Icon name="arrow" size={16} /></a>
             </div>
           )}
           {plan.isPending && <div className="map-planning-status" role="status"><span className="spinner" /> Comparing routes and checking forecasts</div>}

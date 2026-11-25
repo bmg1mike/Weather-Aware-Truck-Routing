@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -81,5 +81,53 @@ describe('App shell', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('button', { name: 'Select Route B, rank 1, recommended' })).toBeInTheDocument();
     expect(planTrip.mock.calls[0]).toEqual(planTrip.mock.calls[1]);
+  });
+});
+
+describe('Workspace navigation', () => {
+  function renderApp() {
+    const { container } = render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    const shell = container.querySelector('.app-shell') as HTMLElement;
+    const nav = screen.getByRole('navigation', { name: 'Workspace' });
+    return {
+      shell,
+      plannerLink: within(nav).getByRole('link', { name: /trip planner/i }),
+      mapLink: within(nav).getByRole('link', { name: 'View map and forecast' }),
+    };
+  }
+
+  it('marks the trip planner as the current view to begin with', () => {
+    const { shell, plannerLink, mapLink } = renderApp();
+    expect(plannerLink).toHaveAttribute('aria-current', 'true');
+    expect(mapLink).not.toHaveAttribute('aria-current');
+    expect(shell).not.toHaveClass('app-shell--map-view');
+  });
+
+  it('switches to the map view and moves focus to the map', async () => {
+    const { shell, plannerLink, mapLink } = renderApp();
+    await userEvent.setup().click(mapLink);
+    expect(shell).toHaveClass('app-shell--map-view');
+    expect(mapLink).toHaveAttribute('aria-current', 'true');
+    expect(plannerLink).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('main', { name: 'Journey overview' })).toHaveFocus();
+  });
+
+  it('switches back to the planner and focuses it', async () => {
+    const user = userEvent.setup();
+    const { shell, plannerLink, mapLink } = renderApp();
+    await user.click(mapLink);
+    await user.click(plannerLink);
+    expect(shell).not.toHaveClass('app-shell--map-view');
+    expect(plannerLink).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('complementary', { name: 'Trip planner' })).toHaveFocus();
+  });
+
+  it('brings the planner back from links inside the map', async () => {
+    const user = userEvent.setup();
+    const { shell, mapLink } = renderApp();
+    await user.click(mapLink);
+    await user.click(screen.getByRole('link', { name: /start with your trip/i }));
+    expect(shell).not.toHaveClass('app-shell--map-view');
+    expect(screen.getByRole('complementary', { name: 'Trip planner' })).toHaveFocus();
   });
 });

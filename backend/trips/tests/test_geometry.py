@@ -5,7 +5,6 @@ import pytest
 from trips.domain import LatLon
 from trips.services.geometry import (
     ProximityIndex,
-    in_us,
     overlap_fraction,
     perpendicular_via_points,
 )
@@ -65,24 +64,10 @@ def test_via_points_follow_the_route_direction():
     assert left.lat > 35.0 > right.lat  # heading east, left is north
 
 
-# --- proximity and US bounds ---------------------------------------------------------------------
+# --- proximity ---------------------------------------------------------------------
 
 
 def test_proximity_index():
     index = ProximityIndex([north(-100)], radius_mi=30)
     assert index.contains(LatLon(36.0, -100.3))  # ~17 mi away
     assert not index.contains(LatLon(36.0, -101.0))  # ~56 mi away
-
-
-@pytest.mark.parametrize(
-    ("point", "expected"),
-    [
-        (LatLon(39.74, -104.99), True),  # Denver
-        (LatLon(61.2, -149.9), True),  # Anchorage
-        (LatLon(21.3, -157.8), True),  # Honolulu
-        (LatLon(19.43, -99.13), False),  # Mexico City
-        (LatLon(51.5, -0.12), False),  # London
-    ],
-)
-def test_in_us(point, expected):
-    assert in_us(point.lat, point.lon) is expected

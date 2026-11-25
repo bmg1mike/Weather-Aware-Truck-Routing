@@ -45,7 +45,7 @@ def test_invalid_plan_fields(client, plan_payload, field, value):
 
 @pytest.mark.parametrize(
     ("key", "value"),
-    [("lat", 91), ("lon", -181), ("lat", "nan"), ("lon", "inf"), ("label", ""), ("lat", 51.5)],
+    [("lat", 91), ("lon", -181), ("lat", "nan"), ("lon", "inf"), ("label", "")],
 )
 def test_invalid_place(client, plan_payload, key, value):
     plan_payload["origin"][key] = value

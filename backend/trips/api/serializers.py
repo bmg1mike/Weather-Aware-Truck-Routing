@@ -10,7 +10,6 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from trips.domain import SAMPLING_INTERVALS_MI, LatLon
-from trips.services.geometry import in_us
 from trips.services.sampling import decode_polyline
 
 MIN_LOAD_LB = 1
@@ -56,13 +55,6 @@ class PlaceSerializer(serializers.Serializer[dict[str, Any]]):
     label = serializers.CharField(max_length=200, trim_whitespace=True)  # type: ignore[assignment]
     lat = FiniteFloatField(min_value=-90, max_value=90)
     lon = FiniteFloatField(min_value=-180, max_value=180)
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if not in_us(attrs["lat"], attrs["lon"]):
-            raise serializers.ValidationError(
-                {"lat": "Only places in the United States are supported."}
-            )
-        return attrs
 
 
 class LoadField(serializers.IntegerField):

@@ -1,4 +1,4 @@
-"""Route geometry helpers: proximity, overlap, via points and US bounds. Pure: no I/O, no Django."""
+"""Route geometry helpers: proximity, overlap and via points. Pure: no I/O, no Django."""
 
 from __future__ import annotations
 
@@ -12,18 +12,6 @@ from trips.services.sampling import cumulative_miles, haversine_mi
 
 _BUCKET_DEG = 0.5
 _MI_PER_DEG = 69.09  # one degree of latitude (and of longitude at the equator)
-
-# [ASSUMPTION] US only (spec section 3). Approximate boxes for the contiguous US, Alaska and
-# Hawaii; geocoding is already restricted to US results, so this catches hand-made requests.
-US_BOUNDS: tuple[tuple[float, float, float, float], ...] = (
-    (24.3, 49.5, -125.0, -66.8),  # (min_lat, max_lat, min_lon, max_lon)
-    (51.0, 71.5, -180.0, -129.9),
-    (18.8, 22.4, -160.4, -154.7),
-)
-
-
-def in_us(lat: float, lon: float) -> bool:
-    return any(a <= lat <= b and c <= lon <= d for a, b, c, d in US_BOUNDS)
 
 
 def densify(route: Sequence[LatLon], step_mi: float) -> list[LatLon]:

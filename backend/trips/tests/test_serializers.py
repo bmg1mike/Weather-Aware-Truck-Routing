@@ -50,6 +50,12 @@ def test_departure_window_and_formats(departure):
     assert parsed.utcoffset() is not None
 
 
+def test_places_outside_the_us_are_accepted():
+    london = {"label": "London, United Kingdom", "lat": 51.5074, "lon": -0.1278}
+    paris = {"label": "Paris, France", "lat": 48.8566, "lon": 2.3522}
+    assert valid_plan(origin=london, destination=paris)["origin"]["lat"] == 51.5074
+
+
 def test_heatmap_payload_is_accepted():
     serializer = HeatmapRequestSerializer(data=heatmap_payload())
     assert serializer.is_valid(), serializer.errors

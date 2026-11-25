@@ -18,7 +18,7 @@ from trips.domain import (
     SamplingInterval,
 )
 from trips.errors import BudgetExceeded, NoRouteFound, ProviderRateLimited, ProviderUnavailable
-from trips.services.geometry import in_us, overlap_fraction, perpendicular_via_points
+from trips.services.geometry import overlap_fraction, perpendicular_via_points
 from trips.services.risk import classify
 from trips.services.routing import RoutingProvider
 from trips.services.sampling import sample_checkpoints
@@ -231,7 +231,8 @@ class TripPlanner:
         self, trip: PlanInput, primary: RouteOption, fraction: float
     ) -> list[RouteOption]:
         offset = primary.distance_mi * fraction
-        vias = [v for v in perpendicular_via_points(primary.points, offset) if in_us(v.lat, v.lon)]
+        # A via point at sea or across a closed border just yields no route, which is ignored.
+        vias = list(perpendicular_via_points(primary.points, offset))
 
         def request(via: LatLon) -> list[RouteOption]:
             try:

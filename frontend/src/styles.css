@@ -481,3 +481,10 @@ button svg { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* --- Workspace views: "Map & forecast" gives the map the whole workspace on desktop ------------ */
+@media (min-width: 901px) {
+  .app-shell--map-view .workspace { grid-template-columns: minmax(0, 1fr); }
+  .app-shell--map-view .planner-panel { display: none; }
+}
+.workspace-nav a[aria-current='true'] { color: var(--forest); background: #eaf0e4; font-weight: 550; }

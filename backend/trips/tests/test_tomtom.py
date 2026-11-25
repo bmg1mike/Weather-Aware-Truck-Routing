@@ -187,10 +187,17 @@ def test_malformed_route_is_unavailable(cache):
 # --- geocoding -----------------------------------------------------------------------------------
 
 
+COUNTRY_NAMES = {"US": "United States", "CA": "Canada", "FR": "France"}
+
+
 def geo_result(label, lat=32.7, lon=-96.8, country="US"):
     return {
         "type": "Geography",
-        "address": {"freeformAddress": label, "countryCode": country},
+        "address": {
+            "freeformAddress": label,
+            "countryCode": country,
+            "country": COUNTRY_NAMES[country],
+        },
         "position": {"lat": lat, "lon": lon},
     }
 
@@ -199,24 +206,30 @@ def geocoding(fake, cache):
     return TomTomGeocodingProvider(fake.client(), KEY, cache)
 
 
-def test_geocode_restricts_to_us_and_encodes_the_query(cache):
+def test_geocode_searches_worldwide_and_encodes_the_query(cache):
     fake = Fake({"results": [geo_result("St. Louis, MO")]})
     places = geocoding(fake, cache).search("St. Louis, MO")
     request = fake.requests[0]
     assert request.url.raw_path.startswith(b"/search/2/geocode/St.%20Louis%2C%20MO.json")
-    assert request.url.params["countrySet"] == "US"
+    assert "countrySet" not in request.url.params
     assert [(p.label, p.point) for p in places] == [("St. Louis, MO", LatLon(32.7, -96.8))]
 
 
-def test_geocode_dedupes_labels_drops_non_us_and_limits_to_five(cache):
-    results = [
-        geo_result("Dallas, TX"),
-        geo_result("dallas, tx", lat=33),
-        geo_result("X", country="CA"),
-    ]
+def test_geocode_dedupes_labels_and_limits_to_five(cache):
+    results = [geo_result("Dallas, TX"), geo_result("dallas, tx", lat=33)]
     results += [geo_result(f"Place {i}") for i in range(10)]
     places = geocoding(Fake({"results": results}), cache).search("Dallas")
     assert [p.label for p in places] == ["Dallas, TX", "Place 0", "Place 1", "Place 2", "Place 3"]
+
+
+def test_non_us_places_are_labelled_with_their_country(cache):
+    results = [
+        geo_result("Paris", lat=48.86, lon=2.35, country="FR"),
+        geo_result("Paris, TX", lat=33.66, lon=-95.55),
+        geo_result("Toronto, ON", lat=43.65, lon=-79.38, country="CA"),
+    ]
+    places = geocoding(Fake({"results": results}), cache).search("Paris")
+    assert [p.label for p in places] == ["Paris, France", "Paris, TX", "Toronto, ON, Canada"]
 
 
 def test_geocode_is_cached_per_normalised_query(cache):

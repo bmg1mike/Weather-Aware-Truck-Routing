@@ -1,7 +1,8 @@
 """Geocoding provider interface and TomTom Geocoding client (spec section 5).
 
-Uses the TomTom Geocoding API, not the fuzzy Search API (2,500/month cap). US results only,
-duplicate labels removed, cached for 24 hours per normalised query.
+Uses the TomTom Geocoding API, not the fuzzy Search API (2,500/month cap). Worldwide results;
+places outside the US carry their country in the label. Duplicate labels are removed and results
+are cached for 24 hours per normalised query.
 """
 
 from __future__ import annotations
@@ -29,12 +30,21 @@ _FETCH_LIMIT = 10
 
 class GeocodingProvider(Protocol):
     def search(self, query: str, *, limit: int = MAX_SUGGESTIONS) -> list[Place]:
-        """Return up to ``limit`` US places matching ``query``."""
+        """Return up to ``limit`` places matching ``query``."""
         ...
 
 
 def _collapse_spaces(query: str) -> str:
     return " ".join(query.split())
+
+
+def _label(address: dict[str, Any]) -> str | None:
+    """TomTom's free-form address, plus the country outside the US ("Paris" -> "Paris, France")."""
+    label = address.get("freeformAddress")
+    country = address.get("country")
+    if not label or address.get("countryCode") == "US" or not country or country in label:
+        return label if isinstance(label, str) else None
+    return f"{label}, {country}"
 
 
 class TomTomGeocodingProvider:
@@ -63,7 +73,7 @@ class TomTomGeocodingProvider:
         return [Place(label, LatLon(lat, lon)) for label, lat, lon in cached[:limit]]
 
     def _fetch(self, query: str) -> list[tuple[str, float, float]]:
-        params = {"key": self._api_key, "countrySet": "US", "limit": _FETCH_LIMIT}
+        params = {"key": self._api_key, "limit": _FETCH_LIMIT}
         url = f"{self._url}/{quote(query, safe='')}.json"
         response = provider_get(self._client, PROVIDER, url, params)
         if response.status_code != 200:
@@ -75,8 +85,8 @@ class TomTomGeocodingProvider:
         try:
             for result in body.get("results") or []:
                 address = result["address"]
-                label = address.get("freeformAddress")
-                if address.get("countryCode") != "US" or not label or label.lower() in seen:
+                label = _label(address)
+                if not label or label.lower() in seen:
                     continue
                 seen.add(label.lower())
                 position = result["position"]

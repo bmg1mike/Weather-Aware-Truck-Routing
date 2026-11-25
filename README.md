@@ -35,7 +35,7 @@ Built for the Spotter Full Stack Developer assessment. The brief puts correctnes
 ## What it does
 
 - **Trip form:**
-  - Origin and destination autocomplete: US places only, minimum 3 characters, 300 ms debounce.
+  - Origin and destination autocomplete for any city worldwide (places outside the US show their country), minimum 3 characters, 300 ms debounce.
   - Departure date and time, sent with its UTC offset.
   - Load weight in lb.
   - Sampling interval of 10, 25 or 50 miles.
@@ -177,7 +177,7 @@ The heatmap is a separate request, sent after the routes are on screen, so rende
 | `trips/services/risk.py` | Threshold tables and `classify()`. **Pure.** |
 | `trips/services/scoring.py` | Segments, miles by level, average risk, ranking, reason sentences. **Pure.** |
 | `trips/services/sampling.py` | Polyline encode/decode, distances, checkpoints, ETAs. **Pure.** |
-| `trips/services/geometry.py` | Route overlap, via points, US bounds, proximity index. **Pure.** |
+| `trips/services/geometry.py` | Route overlap, via points, proximity index. **Pure.** |
 | `trips/services/routing.py` · `geocoding.py` · `weather.py` | `RoutingProvider` / `GeocodingProvider` / `WeatherProvider` interfaces, plus the TomTom and Open-Meteo clients and caching. |
 | `trips/services/http.py` | One place for provider HTTP calls: 8 s timeout, one retry, error mapping. |
 | `trips/services/planner.py` | Runs a plan from start to finish. |
@@ -206,7 +206,7 @@ Base path `/api`, JSON only.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/health` | Liveness check. |
-| `GET` | `/api/geocode?q=Dallas` | Up to 5 US suggestions: `{ "results": [{ "label", "lat", "lon" }] }`. |
+| `GET` | `/api/geocode?q=Dallas` | Up to 5 suggestions worldwide: `{ "results": [{ "label", "lat", "lon" }] }`. |
 | `POST` | `/api/trips/plan` | Routes, checkpoints, summaries, ranking and recommendation. |
 | `POST` | `/api/trips/heatmap` | Corridor grid and 49 hourly frames of risk, wind, rain and snow. |
 
@@ -281,7 +281,7 @@ Every error, including Django's own 400/403/404/500 pages, has the same shape: `
 
 | Field | Rule |
 |---|---|
-| Origin, destination | Valid finite coordinates inside the US and must differ. Autocomplete only offers US places. |
+| Origin, destination | Valid finite coordinates (anywhere in the world) and must differ. |
 | Departure | ISO 8601 **with a UTC offset**; no more than 5 minutes in the past; at most 7 days ahead. |
 | Load | Whole number of pounds, 1 to 80,000. |
 | Interval | 10, 25 or 50 miles (default 25). |
@@ -407,7 +407,7 @@ TomTom doesn't guarantee alternatives. In testing, Dallas → Denver returned 2 
 2. **Via points.** If fewer than 3 routes remain, routes are requested through points left and right of the primary route's midpoint, perpendicular to the trip direction, at **10%** of trip length. Both requests run in parallel.
 3. **Wider second round.** If the 10% detours just rejoin the main road (measured at 80–81% overlap on Dallas → Denver), one more round runs at **20%**.
 4. **Filters:**
-   - Via points outside the US are skipped.
+   - Via points that land at sea or behind a closed border simply return no route, which is ignored.
    - Detours taking more than 1.5× the primary's travel time are dropped.
    - Failed via requests are ignored, so the plan still succeeds.
 5. **Still short:** the routes found are returned, and the UI shows "Only N distinct routes available."
@@ -430,7 +430,7 @@ The brief leaves these open. Each is a single, documented decision that's easy t
 | Segment risk | A segment takes the higher of its two endpoint levels (conservative) | `scoring.py` |
 | ETAs | Continuous driving, no hours-of-service rest breaks | `sampling.py` |
 | Departure window | At most 7 days ahead, so every checkpoint ETA has a forecast | `serializers.py` |
-| Coverage | US only; units are miles, mph, inches and lb | `geometry.py` |
+| Coverage | Any city worldwide (the spec originally assumed US only; widened on request). Units stay imperial: miles, mph, inches and lb. | `geocoding.py` |
 | Truck speed | TomTom's truck profile as returned (no extra speed cap) | `routing.py` |
 
 ---
@@ -476,7 +476,7 @@ On a typical first request, TomTom truck routing takes 3.5–8 s and Open-Meteo 
 
 - **Plan latency.** TomTom truck routing alone takes 3.5–8 s on a first request, so the 5 s target holds only for cached repeats. The via fallback adds about 2–3 s per round.
 - **Truck restrictions** are whatever TomTom's truck mode applies for the given weight. Height, hazmat and axle limits are not entered.
-- **The US check is approximate**: rough bounding boxes for the contiguous US, Alaska and Hawaii. Autocomplete only offers US places.
+- **Worldwide, but imperial and US-tuned.** Any city can be planned, but distances, speeds and rates stay in miles, mph, inches and lb, and the risk thresholds come from the brief rather than local regulations. TomTom's truck coverage and data quality vary by country, and routes that cross the antimeridian (e.g. within Alaska's Aleutians or across the Pacific) are not handled.
 - **Open-Meteo's free API is for non-commercial use.** An assessment demo with no ads or subscriptions fits that reading. A commercial version would need their paid API.
 - **Free hosts share outbound IPs**, so Open-Meteo's per-IP limits may be hit by other tenants. That comes back as a 503 with a retry hint.
 - **Payload size.** A 1,000+ mile plan response is about 370 KB, because full route geometry is sent for both routes and segments. The heatmap request sends the route geometries back to the server. Simplifying the geometry would shrink both.
