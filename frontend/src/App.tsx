@@ -8,7 +8,7 @@ import { Icon } from './components/Icon';
 import { RiskLegend } from './components/RiskLegend';
 import { RouteResults } from './components/RouteResults';
 import { TripForm } from './components/TripForm';
-import { formatDateTime, formatDuration } from './lib/format';
+import { formatDateTime, formatDuration, formatWait } from './lib/format';
 import { toFrames } from './lib/heatmap';
 import { HeatmapController } from './map/heatmapLayer';
 import { MapView } from './map/MapView';
@@ -160,7 +160,7 @@ export function App() {
               <div className="api-error" role="alert">
                 <strong>We couldn’t plan this trip</strong>
                 <p>{plan.error.message}</p>
-                {plan.error instanceof ApiError && plan.error.retryAfterS && <p>Try again in {plan.error.retryAfterS} seconds.</p>}
+                {plan.error instanceof ApiError && plan.error.retryAfterS && <p>Try again in {formatWait(plan.error.retryAfterS)}.</p>}
                 {plan.error instanceof ApiError && plan.error.retryable && <button className="text-button" onClick={() => plan.variables && plan.mutate(plan.variables)}>Try again <Icon name="arrow" size={14} /></button>}
               </div>
             )}

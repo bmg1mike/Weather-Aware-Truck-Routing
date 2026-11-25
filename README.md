@@ -275,7 +275,7 @@ Every error, including Django's own 400/403/404/500 pages, has the same shape: `
 | 422 | `no_route` | TomTom has no truck route between the places. |
 | 422 | `budget_exceeded` | The trip needs more weather locations than the free-tier budget allows. The message suggests a larger interval. |
 | 502 | `provider_unavailable` | A provider timed out (8 s, after one retry) or sent an unusable response. |
-| 503 | `provider_rate_limited` | A provider returned HTTP 429. Comes with a `Retry-After` header and a "retry in N seconds" message. |
+| 503 | `provider_rate_limited` | A provider returned HTTP 429. Comes with a `Retry-After` header and a "retry in about N seconds/minutes/hours" message. When the provider is Open-Meteo, the body also has `weather_request` (see [Browser weather fallback](#browser-weather-fallback)). |
 
 ### Input rules
 
@@ -397,6 +397,18 @@ Missing forecast values are never cached, so they are retried on the next plan.
 
 TomTom allows 20,000 free requests a month for routing and the same again for geocoding. A plan uses 1 routing request, or up to 5 when the fallback below runs.
 
+### Browser weather fallback
+
+Free hosts (Render included) share outbound IP addresses between customers, so Open-Meteo's per-IP daily limit can be used up by someone else's app. When that happens:
+
+1. The plan or heatmap request returns `503 provider_rate_limited` with `weather_request: { cells, start_hour, end_hour }`, listing only the lattice cells that weren't already cached.
+2. The browser ([`api/openMeteo.ts`](frontend/src/api/openMeteo.ts)) fetches those cells from Open-Meteo itself, from the visitor's own IP address, with the same five variables, units and hour window, in batches of 100.
+3. It repeats the same request once with `forecasts: [{ lat, lon, hourly }]`.
+
+The server still classifies risk, scores and ranks. Normally every provider call goes through Django; this is the one exception, and it is a fallback only. Open-Meteo needs no key, so nothing secret is in the bundle. Browser-supplied forecasts are used for that request only and never written to the shared cache, so one visitor can't change another visitor's results. They are validated, and malformed data is a `400 validation_error`. If the visitor's address is rate-limited too, the usual 503 is shown.
+
+Measured: with a simulated server rate limit and real Open-Meteo data, a 3 × 1,000 mi plan at 10 mi needed 303 cells. The browser fetch plus the retry took 1.2 s with a 256 KB request, and the heatmap took 1.0 s with 288 KB.
+
 ---
 
 ## When TomTom returns fewer than three routes
@@ -478,7 +490,7 @@ On a typical first request, TomTom truck routing takes 3.5–8 s and Open-Meteo 
 - **Truck restrictions** are whatever TomTom's truck mode applies for the given weight. Height, hazmat and axle limits are not entered.
 - **Worldwide, but imperial and US-tuned.** Any city can be planned, but distances, speeds and rates stay in miles, mph, inches and lb, and the risk thresholds come from the brief rather than local regulations. TomTom's truck coverage and data quality vary by country, and routes that cross the antimeridian (e.g. within Alaska's Aleutians or across the Pacific) are not handled.
 - **Open-Meteo's free API is for non-commercial use.** An assessment demo with no ads or subscriptions fits that reading. A commercial version would need their paid API.
-- **Free hosts share outbound IPs**, so Open-Meteo's per-IP limits may be hit by other tenants. That comes back as a 503 with a retry hint.
+- **Free hosts share outbound IPs**, so Open-Meteo's per-IP limits may be hit by other tenants. The [browser weather fallback](#browser-weather-fallback) covers this; a 503 appears only if the visitor's own address is limited too.
 - **Payload size.** A 1,000+ mile plan response is about 370 KB, because full route geometry is sent for both routes and segments. The heatmap request sends the route geometries back to the server. Simplifying the geometry would shrink both.
 - **The heatmap budget is trusted from the client.** The server is stateless, so `max_points` is validated (1–200) but not tied to a specific plan.
 - **Forecasts change.** Results are a snapshot of forecasts that are at most 60 minutes old.

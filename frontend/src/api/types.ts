@@ -11,6 +11,24 @@ export type SamplingInterval = 10 | 25 | 50;
 
 export interface ErrorResponse {
   error: { code: string; message: string };
+  /** Only on a 503 caused by Open-Meteo rate-limiting the server. */
+  weather_request?: WeatherRequest;
+}
+
+/** Forecasts the browser should fetch from Open-Meteo itself when the server is rate-limited. */
+export interface WeatherRequest {
+  /** [lat, lon] lattice cells. */
+  cells: [number, number][];
+  /** Open-Meteo start_hour / end_hour (UTC, YYYY-MM-DDTHH:MM). */
+  start_hour: string;
+  end_hour: string;
+}
+
+/** One requested cell plus Open-Meteo's `hourly` block for it. */
+export interface SuppliedForecast {
+  lat: number;
+  lon: number;
+  hourly: Record<string, (number | string | null)[]>;
 }
 
 // --- GET /api/geocode?q= ----------------------------------------------------------------------
@@ -35,6 +53,8 @@ export interface PlanRequest {
   departure: string;
   load_lb: number;
   interval_mi: SamplingInterval;
+  /** Browser-fetched forecasts, sent only when repeating a request after a weather_request. */
+  forecasts?: SuppliedForecast[];
 }
 
 export interface Checkpoint {
@@ -113,6 +133,7 @@ export interface HeatmapRequest {
   load_lb: number;
   /** Grid point cap from the plan's corridor, so the trip stays within 500 weather locations. */
   max_points?: number;
+  forecasts?: SuppliedForecast[];
 }
 
 export interface HeatmapResponse {

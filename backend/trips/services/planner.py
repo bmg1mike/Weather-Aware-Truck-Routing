@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import math
 from collections.abc import Mapping, Sequence
@@ -145,6 +146,12 @@ class TripPlanner:
         self.weather = weather
         self.wind_source = wind_source
         self.max_checkpoint_cells = max_checkpoint_cells
+
+    def with_weather(self, weather: WeatherLookup) -> TripPlanner:
+        """The same planner reading weather from ``weather`` (e.g. browser-supplied forecasts)."""
+        clone = copy.copy(self)
+        clone.weather = weather
+        return clone
 
     def plan(self, trip: PlanInput) -> TripPlan:
         options = self._distinct_routes(trip)

@@ -11,6 +11,7 @@ same hour alignment and ``classify`` as checkpoints.
 
 from __future__ import annotations
 
+import copy
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -20,7 +21,12 @@ from trips.domain import LatLon, RiskLevel
 from trips.errors import BudgetExceeded
 from trips.services.geometry import ProximityIndex
 from trips.services.risk import classify
-from trips.services.weather import WeatherLookup, checkpoint_weather, hours_needed, snap_to_lattice
+from trips.services.weather import (
+    WeatherLookup,
+    checkpoint_weather,
+    hours_needed,
+    snap_to_lattice,
+)
 
 HOURS = 49  # slider hours 0 to 48 inclusive
 CORRIDOR_BUFFER_MI = 30
@@ -89,6 +95,12 @@ class HeatmapBuilder:
     def __init__(self, weather: WeatherLookup, *, wind_source: str = "sustained") -> None:
         self.weather = weather
         self.wind_source = wind_source
+
+    def with_weather(self, weather: WeatherLookup) -> HeatmapBuilder:
+        """The same builder reading weather from ``weather`` (e.g. browser-supplied forecasts)."""
+        clone = copy.copy(self)
+        clone.weather = weather
+        return clone
 
     def build(self, points: Sequence[LatLon], start: datetime, *, load_lb: int) -> Frames:
         times = [start + timedelta(hours=h) for h in range(HOURS)]

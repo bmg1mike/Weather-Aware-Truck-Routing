@@ -13,7 +13,12 @@ from trips.api.serializers import (
     PlanRequestSerializer,
 )
 from trips.domain import LatLon, Place
-from trips.services.container import get_geocoder, get_heatmap_builder, get_planner
+from trips.services.container import (
+    get_geocoder,
+    get_heatmap_builder,
+    get_planner,
+    supplied_weather,
+)
 from trips.services.heatmap import corridor_grid
 from trips.services.planner import PlanInput
 
@@ -46,7 +51,10 @@ class PlanView(APIView):
             load_lb=data["load_lb"],
             interval_mi=data["interval_mi"],
         )
-        return Response(plan_json(get_planner().plan(trip)))
+        planner = get_planner()
+        if "forecasts" in data:  # the browser's fallback after a weather_request
+            planner = planner.with_weather(supplied_weather(data["forecasts"]))
+        return Response(plan_json(planner.plan(trip)))
 
 
 class HeatmapView(APIView):
@@ -57,5 +65,8 @@ class HeatmapView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         grid = corridor_grid(data["bbox"], data["route_geometries"], max_points=data["max_points"])
-        frames = get_heatmap_builder().build(grid.points, data["start"], load_lb=data["load_lb"])
+        builder = get_heatmap_builder()
+        if "forecasts" in data:  # the browser's fallback after a weather_request
+            builder = builder.with_weather(supplied_weather(data["forecasts"]))
+        frames = builder.build(grid.points, data["start"], load_lb=data["load_lb"])
         return Response(heatmap_json(grid, frames))

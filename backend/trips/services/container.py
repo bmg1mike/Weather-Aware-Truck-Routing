@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import cache
 
 import httpx
 from django.conf import settings
 from django.core.cache import caches
 
+from trips.domain import HourlyForecast, LatLon
 from trips.errors import ProviderUnavailable
 from trips.services.geocoding import GeocodingProvider, TomTomGeocodingProvider
 from trips.services.heatmap import HeatmapBuilder
 from trips.services.planner import TripPlanner
 from trips.services.routing import TomTomRoutingProvider
-from trips.services.weather import OpenMeteoWeatherProvider, WeatherLookup
+from trips.services.weather import OpenMeteoWeatherProvider, SuppliedWeatherProvider, WeatherLookup
 
 
 @cache
@@ -42,6 +44,11 @@ def get_geocoder() -> GeocodingProvider:
 
 def _weather() -> WeatherLookup:
     return WeatherLookup(OpenMeteoWeatherProvider(http_client()), caches["default"])
+
+
+def supplied_weather(forecasts: Mapping[LatLon, HourlyForecast]) -> WeatherLookup:
+    """Browser-fetched forecasts: the shared cache is read first but never written with them."""
+    return WeatherLookup(SuppliedWeatherProvider(forecasts), caches["default"], cache_writes=False)
 
 
 def get_heatmap_builder() -> HeatmapBuilder:

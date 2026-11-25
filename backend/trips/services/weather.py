@@ -19,7 +19,7 @@ import httpx
 from django.core.cache.backends.base import BaseCache
 
 from trips.domain import CheckpointWeather, HourlyForecast, LatLon
-from trips.errors import ProviderUnavailable
+from trips.errors import ProviderRateLimited, ProviderUnavailable, WeatherRateLimited
 from trips.services.http import json_body, provider_get
 
 logger = logging.getLogger(__name__)
@@ -186,6 +186,23 @@ class OpenMeteoWeatherProvider:
         }
 
 
+class SuppliedWeatherProvider:
+    """Forecasts the browser fetched from Open-Meteo itself (see ``WeatherRateLimited``)."""
+
+    def __init__(self, forecasts: Mapping[LatLon, HourlyForecast]) -> None:
+        self._forecasts = forecasts
+
+    def hourly(
+        self, cells: Sequence[LatLon], *, start: datetime, end: datetime
+    ) -> dict[LatLon, HourlyForecast]:
+        return {cell: self._forecasts[cell] for cell in cells if cell in self._forecasts}
+
+
+def parse_supplied_location(cell: LatLon, hourly: Any) -> HourlyForecast:
+    """Parse one browser-supplied ``hourly`` block; raises ``ProviderUnavailable`` if malformed."""
+    return _parse_location(cell, {"hourly": hourly})
+
+
 # --- cached lookup -------------------------------------------------------------------------------
 
 
@@ -198,12 +215,22 @@ class WeatherLookup:
 
     Uncached cells are fetched in one window spanning only the hours they need. Gaps the provider
     leaves are returned as ``MISSING`` and not cached, so they are retried on the next plan.
+    With ``cache_writes=False`` (browser-supplied forecasts) the cache is read but never written,
+    so one client's data never reaches another client's results.
     """
 
-    def __init__(self, provider: WeatherProvider, cache: BaseCache, ttl_s: int = CACHE_TTL_S):
+    def __init__(
+        self,
+        provider: WeatherProvider,
+        cache: BaseCache,
+        ttl_s: int = CACHE_TTL_S,
+        *,
+        cache_writes: bool = True,
+    ):
         self._provider = provider
         self._cache = cache
         self._ttl_s = ttl_s
+        self._cache_writes = cache_writes
 
     def values(
         self, needs: Mapping[LatLon, set[datetime]]
@@ -222,9 +249,16 @@ class WeatherLookup:
 
         if missing:
             all_hours = [hour for hours in missing.values() for hour in hours]
-            forecasts = self._provider.hourly(
-                list(missing), start=min(all_hours), end=max(all_hours)
-            )
+            start, end = min(all_hours), max(all_hours)
+            try:
+                forecasts = self._provider.hourly(list(missing), start=start, end=end)
+            except ProviderRateLimited as exc:
+                raise WeatherRateLimited(
+                    exc.retry_after_s,
+                    cells=[(cell.lat, cell.lon) for cell in missing],
+                    start_hour=start.astimezone(UTC).strftime(_HOUR_FORMAT),
+                    end_hour=end.astimezone(UTC).strftime(_HOUR_FORMAT),
+                ) from exc
             to_cache: dict[str, tuple[float | None, ...]] = {}
             for cell, forecast in forecasts.items():
                 for i, hour in enumerate(forecast.times):
@@ -245,7 +279,8 @@ class WeatherLookup:
                         )
                     if hour in missing.get(cell, ()):
                         result[(cell, hour)] = hv
-            self._cache.set_many(to_cache, timeout=self._ttl_s)
+            if self._cache_writes:
+                self._cache.set_many(to_cache, timeout=self._ttl_s)
             for cell, hours in missing.items():
                 for hour in hours:
                     result.setdefault((cell, hour), MISSING)

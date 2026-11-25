@@ -16,8 +16,28 @@ class ErrorDetail(TypedDict):
     message: str
 
 
+class WeatherRequestJSON(TypedDict):
+    """Forecasts the browser should fetch from Open-Meteo when the server is rate-limited."""
+
+    cells: list[tuple[float, float]]
+    """[lat, lon] lattice cells, in the order to request them."""
+    start_hour: str
+    """Open-Meteo ``start_hour`` / ``end_hour`` (UTC, ``YYYY-MM-DDTHH:MM``)."""
+    end_hour: str
+
+
 class ErrorResponse(TypedDict):
     error: ErrorDetail
+    weather_request: NotRequired[WeatherRequestJSON]
+    """Only on a 503 caused by Open-Meteo rate-limiting the server."""
+
+
+class SuppliedForecastJSON(TypedDict):
+    """One requested cell plus Open-Meteo's ``hourly`` block for it."""
+
+    lat: float
+    lon: float
+    hourly: dict[str, list[float | str | None]]
 
 
 # --- GET /api/geocode?q= -------------------------------------------------------------------------
@@ -44,6 +64,8 @@ class PlanRequest(TypedDict):
     """ISO 8601 with a UTC offset."""
     load_lb: int
     interval_mi: SamplingInterval
+    forecasts: NotRequired[list[SuppliedForecastJSON]]
+    """Browser-fetched forecasts, sent only when repeating a request after a weather_request."""
 
 
 class CheckpointJSON(TypedDict):
@@ -129,6 +151,7 @@ class HeatmapRequest(TypedDict):
     load_lb: int
     max_points: NotRequired[int]
     """Grid point cap from the plan's corridor (1-200, default 200)."""
+    forecasts: NotRequired[list[SuppliedForecastJSON]]
 
 
 class GridJSON(TypedDict):

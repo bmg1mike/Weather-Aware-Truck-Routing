@@ -9,8 +9,10 @@ from typing import Any
 from django.utils import timezone
 from rest_framework import serializers
 
-from trips.domain import SAMPLING_INTERVALS_MI, LatLon
+from trips.domain import SAMPLING_INTERVALS_MI, HourlyForecast, LatLon
+from trips.errors import ProviderUnavailable
 from trips.services.sampling import decode_polyline
+from trips.services.weather import parse_supplied_location, snap_to_lattice
 
 MIN_LOAD_LB = 1
 MAX_LOAD_LB = 80_000
@@ -22,6 +24,8 @@ HEATMAP_START_PAST_GRACE = timedelta(hours=1)
 SAME_PLACE_TOLERANCE_DEG = 1e-4  # about 11 m
 MIN_GEOCODE_QUERY = 3
 MAX_ROUTES = 3
+MAX_SUPPLIED_LOCATIONS = 500  # the per-trip weather budget
+MAX_SUPPLIED_HOURS = 24 * 10  # 7 days ahead plus a 2-day trip, with room to spare
 
 
 def parse_offset_datetime(value: str, *, past_grace: timedelta) -> datetime:
@@ -68,12 +72,48 @@ class LoadField(serializers.IntegerField):
         return int(super().to_internal_value(data))
 
 
+class SuppliedForecastSerializer(serializers.Serializer[dict[str, Any]]):
+    """One cell the browser fetched from Open-Meteo after a ``weather_request``."""
+
+    lat = FiniteFloatField(min_value=-90, max_value=90)
+    lon = FiniteFloatField(min_value=-180, max_value=180)
+    hourly = serializers.DictField()
+
+
+class SuppliedForecastsField(serializers.ListField):
+    """Optional ``forecasts``: parsed into ``{lattice cell: HourlyForecast}``."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(
+            child=SuppliedForecastSerializer(),
+            required=False,
+            max_length=MAX_SUPPLIED_LOCATIONS,
+            **kwargs,
+        )
+
+    def to_internal_value(self, data: Any) -> dict[LatLon, HourlyForecast]:  # type: ignore[override]
+        parsed: dict[LatLon, HourlyForecast] = {}
+        for item in super().to_internal_value(data):
+            times = item["hourly"].get("time")
+            if not isinstance(times, list) or len(times) > MAX_SUPPLIED_HOURS:
+                raise serializers.ValidationError("Each forecast needs an hourly time list.")
+            cell = snap_to_lattice(LatLon(item["lat"], item["lon"]))
+            try:
+                parsed[cell] = parse_supplied_location(cell, item["hourly"])
+            except ProviderUnavailable as exc:
+                raise serializers.ValidationError(
+                    "Each forecast must be an Open-Meteo hourly block."
+                ) from exc
+        return parsed
+
+
 class PlanRequestSerializer(serializers.Serializer[dict[str, Any]]):
     origin = PlaceSerializer()
     destination = PlaceSerializer()
     departure = serializers.CharField()
     load_lb = LoadField()
     interval_mi = serializers.ChoiceField(choices=SAMPLING_INTERVALS_MI, default=25)
+    forecasts = SuppliedForecastsField()
 
     def validate_departure(self, value: str) -> datetime:
         return parse_offset_datetime(value, past_grace=DEPARTURE_PAST_GRACE)
@@ -96,6 +136,7 @@ class HeatmapRequestSerializer(serializers.Serializer[dict[str, Any]]):
     start = serializers.CharField()
     load_lb = LoadField()
     max_points = serializers.IntegerField(min_value=1, max_value=200, default=200)
+    forecasts = SuppliedForecastsField()
 
     def validate_start(self, value: str) -> datetime:
         return parse_offset_datetime(value, past_grace=HEATMAP_START_PAST_GRACE)

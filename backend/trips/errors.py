@@ -34,6 +34,10 @@ class ApiError(Exception):
     def headers(self) -> dict[str, str]:
         return {}
 
+    def extra(self) -> dict[str, Any]:
+        """Top-level fields sent alongside ``error`` (rarely needed)."""
+        return {}
+
 
 class ValidationFailed(ApiError):
     status_code = status.HTTP_400_BAD_REQUEST
@@ -52,6 +56,16 @@ class ProviderUnavailable(ApiError):
         super().__init__(message or f"{provider} did not respond in time. Please try again.")
 
 
+def human_wait(seconds: int) -> str:
+    """``37632`` -> ``"10 hours"``: retry hints in units a driver reads at a glance."""
+    if seconds < 120:
+        return f"{seconds} seconds"
+    if seconds < 90 * 60:
+        return f"{round(seconds / 60)} minutes"
+    hours = round(seconds / 3600)
+    return f"{hours} hour" if hours == 1 else f"{hours} hours"
+
+
 class ProviderRateLimited(ApiError):
     """A provider answered HTTP 429. Mapped to 503 with a retry hint (spec section 10)."""
 
@@ -61,10 +75,27 @@ class ProviderRateLimited(ApiError):
     def __init__(self, provider: str, retry_after_s: int = 60) -> None:
         self.provider = provider
         self.retry_after_s = retry_after_s
-        super().__init__(f"{provider} is busy. Please retry in about {retry_after_s} seconds.")
+        super().__init__(f"{provider} is busy. Please retry in about {human_wait(retry_after_s)}.")
 
     def headers(self) -> dict[str, str]:
         return {"Retry-After": str(self.retry_after_s)}
+
+
+class WeatherRateLimited(ProviderRateLimited):
+    """Open-Meteo rate-limited the server's IP address (shared on free hosting).
+
+    The response names the forecasts still needed (``weather_request``) so the browser can fetch
+    them from its own address and repeat the request with them (``forecasts``).
+    """
+
+    def __init__(
+        self, retry_after_s: int, cells: list[tuple[float, float]], start_hour: str, end_hour: str
+    ) -> None:
+        super().__init__("Open-Meteo", retry_after_s)
+        self.weather_request = {"cells": cells, "start_hour": start_hour, "end_hour": end_hour}
+
+    def extra(self) -> dict[str, Any]:
+        return {"weather_request": self.weather_request}
 
 
 class NoRouteFound(ApiError):
@@ -102,7 +133,9 @@ def api_exception_handler(exc: Exception, context: dict[str, Any]) -> Response:
     """DRF ``EXCEPTION_HANDLER``: render every failure in the error envelope."""
     if isinstance(exc, ApiError):
         return Response(
-            error_body(exc.code, exc.message), status=exc.status_code, headers=exc.headers()
+            {**error_body(exc.code, exc.message), **exc.extra()},
+            status=exc.status_code,
+            headers=exc.headers(),
         )
     # Mirror DRF's default handler: Django's own 404/403 become their DRF equivalents.
     if isinstance(exc, Http404):
