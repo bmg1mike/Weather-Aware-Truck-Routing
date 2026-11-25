@@ -86,3 +86,17 @@ Overlap here is a rough share of points shared after rounding to 0.01°, not the
 - Fallback step 1 (spec §5): **spec left unchanged**; revisit in phase 6 with the GET restriction above in mind.
 - Truck speed: **no cap**; TomTom's truck speed profile is used as returned.
 - Provider timeout: **8 s everywhere** as specified; re-measure routing latency in phase 6.
+
+## Phase 6 follow-up (2026-11-24)
+
+- **Fallback step 1 skipped** (user decision). A POST reconstruction with the primary route as `supportingPoints` and `minDeviationDistance=0`/`minDeviationTime=0` on Dallas → Denver returned the same 2 routes in 5.2 s. With 50 km it returned 1 route.
+- **Via points.** At 10% of trip length (88 mi) both Dallas → Denver via routes overlapped the primary by 80–81%, so they were discarded as duplicates. At 20%, overlap was 58% (left) and 30% (right). The planner now tries 10%, then 20%. Via requests use `maxAlternatives=0` and took about 1.6 s each, in parallel.
+- **Budget split.** A 1,000+ mi trip at 10 mi with 3 routes needs about 365 checkpoint cells, more than the fixed 300 used in phase 3. Checkpoints may now use up to 400 cells; the heatmap gets `min(200, 500 − cells)` (returned as `corridor.max_grid_points`) and widens its spacing to fit.
+- **Measured live** (cold = TomTom and Open-Meteo uncached; warm = all cached):
+
+| Trip | Interval | Routes | Checkpoints | Cold | Warm | Heatmap |
+|---|---|---|---|---|---|---|
+| Dallas → Denver (882 mi) | 25 mi | 3 (third from via fallback) | 106 | 10.0 s | — | 200-point budget |
+| Chicago → Denver (1,161 mi) | 10 mi | 3 | 370 | **5.2 s** | 0.26 s | 135-point budget; 125 points at 0.7°, 0.64 s |
+
+  The spec's under-5 s target for a 1,000 mi plan at 10 mi is narrowly **missed** cold (5.2 s, almost all TomTom routing) and met warm. A plan that needs the via fallback costs about 2–3 s more per round.

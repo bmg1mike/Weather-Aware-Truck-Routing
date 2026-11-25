@@ -97,7 +97,11 @@ export interface PlanResponse {
   recommended_route_id: string;
   no_safe_route: boolean;
   routes: Route[];
-  corridor: { bbox: BBox };
+  corridor: {
+    bbox: BBox;
+    /** Weather locations left for the heatmap (<= 200); sent back as HeatmapRequest.max_points. */
+    max_grid_points: number;
+  };
 }
 
 // --- POST /api/trips/heatmap ------------------------------------------------------------------
@@ -107,6 +111,8 @@ export interface HeatmapRequest {
   route_geometries: string[];
   start: string;
   load_lb: number;
+  /** Grid point cap from the plan's corridor, so the trip stays within 500 weather locations. */
+  max_points?: number;
 }
 
 export interface HeatmapResponse {

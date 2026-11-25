@@ -12,16 +12,14 @@ same hour alignment and ``classify`` as checkpoints.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from itertools import pairwise
 
 from trips.domain import LatLon, RiskLevel
 from trips.errors import BudgetExceeded
+from trips.services.geometry import ProximityIndex
 from trips.services.risk import classify
-from trips.services.sampling import haversine_mi
 from trips.services.weather import WeatherLookup, checkpoint_weather, hours_needed, snap_to_lattice
 
 HOURS = 49  # slider hours 0 to 48 inclusive
@@ -30,9 +28,6 @@ MAX_GRID_POINTS = 200
 START_SPACING_DEG = 0.3
 SPACING_STEP_DEG = 0.1
 MAX_SPACING_DEG = 1.0
-_ROUTE_SAMPLE_MI = 2.0  # route densified to this spacing for corridor tests (<= 1 mi error)
-_BUCKET_DEG = 0.5
-_MI_PER_DEG_LAT = 69.0
 WIND_DECIMALS = 1
 PRECIP_DECIMALS = 3
 
@@ -56,52 +51,6 @@ class Frames:
 # --- corridor -----------------------------------------------------------------------------------
 
 
-def _densify(route: Sequence[LatLon], step_mi: float) -> list[LatLon]:
-    """Route vertices thinned and filled in so consecutive samples are about ``step_mi`` apart."""
-    if not route:
-        return []
-    samples = [route[0]]
-    for a, b in pairwise(route):
-        gap = haversine_mi(samples[-1], b)
-        if gap < step_mi:
-            continue
-        pieces = math.ceil(haversine_mi(a, b) / step_mi)
-        for i in range(1, pieces + 1):
-            f = i / pieces
-            samples.append(LatLon(a.lat + (b.lat - a.lat) * f, a.lon + (b.lon - a.lon) * f))
-    if samples[-1] != route[-1]:
-        samples.append(route[-1])
-    return samples
-
-
-class _Corridor:
-    """Answers "is this point within ``buffer_mi`` of any route?" using a coarse spatial hash."""
-
-    def __init__(self, routes: Sequence[Sequence[LatLon]], buffer_mi: float) -> None:
-        self.buffer_mi = buffer_mi
-        self.buckets: dict[tuple[int, int], list[LatLon]] = defaultdict(list)
-        for route in routes:
-            for p in _densify(route, _ROUTE_SAMPLE_MI):
-                self.buckets[self._bucket(p)].append(p)
-
-    @staticmethod
-    def _bucket(p: LatLon) -> tuple[int, int]:
-        return math.floor(p.lat / _BUCKET_DEG), math.floor(p.lon / _BUCKET_DEG)
-
-    def contains(self, p: LatLon) -> bool:
-        lat_reach = self.buffer_mi / _MI_PER_DEG_LAT
-        lon_reach = lat_reach / max(math.cos(math.radians(p.lat)), 0.05)
-        row, col = self._bucket(p)
-        rows = math.ceil(lat_reach / _BUCKET_DEG)
-        cols = math.ceil(lon_reach / _BUCKET_DEG)
-        for r in range(row - rows, row + rows + 1):
-            for c in range(col - cols, col + cols + 1):
-                for q in self.buckets.get((r, c), ()):
-                    if haversine_mi(p, q) <= self.buffer_mi:
-                        return True
-        return False
-
-
 def _lattice(bbox: tuple[float, float, float, float], spacing: float) -> list[LatLon]:
     min_lon, min_lat, max_lon, max_lat = bbox
     lats = range(math.ceil(min_lat / spacing - 1e-9), math.floor(max_lat / spacing + 1e-9) + 1)
@@ -120,7 +69,7 @@ def corridor_grid(
     start_spacing_deg: float = START_SPACING_DEG,
     max_spacing_deg: float = MAX_SPACING_DEG,
 ) -> Grid:
-    corridor = _Corridor(routes, buffer_mi)
+    corridor = ProximityIndex(routes, buffer_mi)
     spacing = start_spacing_deg
     while spacing <= max_spacing_deg + 1e-9:
         points = [p for p in _lattice(bbox, spacing) if corridor.contains(p)]

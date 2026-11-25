@@ -38,7 +38,9 @@ def test_plan_response_matches_the_contract(client, plan_payload, use_planner):
     assert set(body) == {"recommended_route_id", "no_safe_route", "routes", "corridor"}
     assert body["recommended_route_id"] == "r1"
     assert body["no_safe_route"] is False
+    assert set(body["corridor"]) == {"bbox", "max_grid_points"}
     assert len(body["corridor"]["bbox"]) == 4
+    assert body["corridor"]["max_grid_points"] == 200
 
     route = body["routes"][0]
     assert set(route) == {
@@ -242,3 +244,11 @@ def test_heatmap_unknown_cells_are_null(client, use_heatmap):
     use_heatmap(lambda c, h: HourValues(None, None, None, None, None))
     body = client.post("/api/trips/heatmap", heatmap_request(), format="json").json()
     assert set(body["risk"][0]) == {None}
+
+
+def test_heatmap_respects_the_budget_left_by_the_plan(client, use_heatmap):
+    weather = use_heatmap()
+    response = client.post("/api/trips/heatmap", heatmap_request({"max_points": 40}), format="json")
+    assert response.status_code == 200
+    assert 0 < len(response.json()["grid"]["lats"]) <= 40
+    assert len(set(weather.requested_cells)) <= 40

@@ -76,4 +76,18 @@ describe('MapView', () => {
     expect(popup).toHaveTextContent('Risk driver Wind');
     expect(popup).toHaveTextContent('ETA');
   });
+
+  it('refits around a resized forecast dock without recreating the map sources', () => {
+    const addSource = vi.spyOn(maplibregl.Map.prototype, 'addSource');
+    const fitBounds = vi.spyOn(maplibregl.Map.prototype, 'fitBounds');
+    const { rerender } = render(<MapView routes={testPlan.routes} selectedId="r2" bottomInset={240} />);
+    rerender(<MapView routes={testPlan.routes} selectedId="r2" bottomInset={420} />);
+    expect(fitBounds).toHaveBeenCalledTimes(2);
+    expect(fitBounds).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      padding: expect.objectContaining({ bottom: 420 }),
+    }));
+    rerender(<MapView routes={testPlan.routes} selectedId="r1" bottomInset={420} />);
+    expect(fitBounds).toHaveBeenCalledTimes(2);
+    expect(addSource).toHaveBeenCalledTimes(3);
+  });
 });

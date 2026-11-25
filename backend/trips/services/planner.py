@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -15,7 +17,8 @@ from trips.domain import (
     RouteOption,
     SamplingInterval,
 )
-from trips.errors import BudgetExceeded
+from trips.errors import BudgetExceeded, NoRouteFound, ProviderRateLimited, ProviderUnavailable
+from trips.services.geometry import in_us, overlap_fraction, perpendicular_via_points
 from trips.services.risk import classify
 from trips.services.routing import RoutingProvider
 from trips.services.sampling import sample_checkpoints
@@ -35,12 +38,23 @@ from trips.services.weather import (
     snap_to_lattice,
 )
 
-# Free-tier budget (spec section 5): at most 500 unique weather locations per trip, of which up to
-# 200 are reserved for the heatmap grid, leaving 300 for checkpoints.
+logger = logging.getLogger(__name__)
+
+# Free-tier budget (spec section 5): at most 500 unique weather locations per trip, checkpoints plus
+# heatmap grid. The heatmap takes what checkpoints leave (at most 200, widening its spacing to fit);
+# checkpoints may use up to 400 so the heatmap always keeps at least 100.
 MAX_TRIP_LOCATIONS = 500
 HEATMAP_MAX_POINTS = 200
-MAX_CHECKPOINT_CELLS = MAX_TRIP_LOCATIONS - HEATMAP_MAX_POINTS
+HEATMAP_MIN_POINTS = 100
+MAX_CHECKPOINT_CELLS = MAX_TRIP_LOCATIONS - HEATMAP_MIN_POINTS
 CORRIDOR_BUFFER_MI = 30
+MAX_ROUTES = 3
+MAX_OVERLAP = 0.80  # a route sharing more than this share of its length with another is a duplicate
+# Via points sit ~10% of the trip length off the primary midpoint (spec section 5). At 10% a detour
+# often rejoins the primary road (measured: 80-81% overlap on Dallas-Denver), so one wider round
+# at 20% follows if routes are still short.
+VIA_OFFSET_FRACTIONS = (0.10, 0.20)
+MAX_DETOUR_RATIO = 1.5  # a via route taking 50% longer than the primary is not a useful option
 _MI_PER_DEG_LAT = 69.0
 _ROUTE_NAMES = "ABCDEFGHIJ"
 
@@ -77,6 +91,8 @@ class TripPlan:
     no_safe_route: bool
     bbox: tuple[float, float, float, float]
     """Corridor [min_lon, min_lat, max_lon, max_lat] around all routes."""
+    max_grid_points: int
+    """Weather locations left for the heatmap so the trip stays within 500 in total."""
 
 
 def corridor_bbox(
@@ -104,6 +120,18 @@ def _budget_message(cells: int, limit: int, interval: int) -> str:
     )
 
 
+def _keep_distinct(
+    kept: Sequence[RouteOption], candidates: Sequence[RouteOption]
+) -> list[RouteOption]:
+    result = list(kept)
+    for candidate in candidates:
+        if len(result) >= MAX_ROUTES:
+            break
+        if all(overlap_fraction(candidate.points, other.points) <= MAX_OVERLAP for other in result):
+            result.append(candidate)
+    return result
+
+
 class TripPlanner:
     def __init__(
         self,
@@ -119,12 +147,7 @@ class TripPlanner:
         self.max_checkpoint_cells = max_checkpoint_cells
 
     def plan(self, trip: PlanInput) -> TripPlan:
-        options = self.routing.routes(
-            trip.origin.point,
-            trip.destination.point,
-            departure=trip.departure,
-            load_lb=trip.load_lb,
-        )
+        options = self._distinct_routes(trip)
         sampled = {option.id: sample_checkpoints(option, trip.interval_mi) for option in options}
 
         needs: dict[LatLon, set[datetime]] = {}
@@ -172,7 +195,63 @@ class TripPlanner:
             recommended_id=ranking.recommended.route.id,
             no_safe_route=ranking.no_safe_route,
             bbox=corridor_bbox(options),
+            max_grid_points=min(HEATMAP_MAX_POINTS, MAX_TRIP_LOCATIONS - len(needs)),
         )
+
+    def _distinct_routes(self, trip: PlanInput) -> list[RouteOption]:
+        """Up to three routes, none overlapping a kept one by more than 80% (spec section 5).
+
+        If TomTom returns fewer, routes through via points left and right of the primary route's
+        midpoint are requested in parallel. The spec's first step (relaxed deviation settings) is
+        skipped: TomTom accepts those parameters only when reconstructing a supplied route, and
+        that returned no extra route in testing (docs/phase0-findings.md).
+        """
+        kept = _keep_distinct(
+            [],
+            self.routing.routes(
+                trip.origin.point,
+                trip.destination.point,
+                departure=trip.departure,
+                load_lb=trip.load_lb,
+            ),
+        )
+        for fraction in VIA_OFFSET_FRACTIONS:
+            if not 0 < len(kept) < MAX_ROUTES:
+                break
+            primary = kept[0]
+            detours = [
+                route
+                for route in self._via_routes(trip, primary, fraction)
+                if route.duration_s <= primary.duration_s * MAX_DETOUR_RATIO
+            ]
+            kept = _keep_distinct(kept, detours)
+        return [replace(option, id=f"r{i}") for i, option in enumerate(kept[:MAX_ROUTES], start=1)]
+
+    def _via_routes(
+        self, trip: PlanInput, primary: RouteOption, fraction: float
+    ) -> list[RouteOption]:
+        offset = primary.distance_mi * fraction
+        vias = [v for v in perpendicular_via_points(primary.points, offset) if in_us(v.lat, v.lon)]
+
+        def request(via: LatLon) -> list[RouteOption]:
+            try:
+                routes = self.routing.routes(
+                    trip.origin.point,
+                    trip.destination.point,
+                    departure=trip.departure,
+                    load_lb=trip.load_lb,
+                    max_alternatives=0,
+                    via=[via],
+                )
+            except (NoRouteFound, ProviderUnavailable, ProviderRateLimited) as exc:
+                logger.info("Via-point route unavailable (%s); continuing without it.", exc.code)
+                return []
+            return routes[:1]
+
+        if not vias:
+            return []
+        with ThreadPoolExecutor(max_workers=len(vias)) as pool:
+            return [route for routes in pool.map(request, vias) for route in routes]
 
     def _classify(
         self,

@@ -8,7 +8,7 @@ import { Icon } from './components/Icon';
 import { RiskLegend } from './components/RiskLegend';
 import { RouteResults } from './components/RouteResults';
 import { TripForm } from './components/TripForm';
-import { formatDuration } from './lib/format';
+import { formatDateTime, formatDuration } from './lib/format';
 import { toFrames } from './lib/heatmap';
 import { HeatmapController } from './map/heatmapLayer';
 import { MapView } from './map/MapView';
@@ -21,6 +21,8 @@ export function App() {
   const [checkpointIndex, setCheckpointIndex] = useState<number | null>(null);
   const [editing, setEditing] = useState(true);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
+  const mapDock = useRef<HTMLDivElement>(null);
+  const [mapBottomInset, setMapBottomInset] = useState(320);
   const plan = useMutation({
     mutationFn: (request: PlanRequest) => api.planTrip(request),
     retry: false,
@@ -46,6 +48,7 @@ export function App() {
         route_geometries: routes.map((route) => route.geometry),
         start: request.departure,
         load_lb: request.load_lb,
+        max_points: plan.data.corridor.max_grid_points,
       }, signal);
     },
     select: selectFrames,
@@ -79,6 +82,23 @@ export function App() {
     if (plan.data) resultsHeading.current?.focus();
   }, [plan.data]);
 
+  useEffect(() => {
+    const dock = mapDock.current;
+    if (!dock) return;
+    const measure = () => {
+      const area = dock.offsetParent;
+      if (area instanceof HTMLElement) setMapBottomInset(Math.ceil(area.clientHeight - dock.offsetTop + 24));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(dock);
+    window.addEventListener('resize', measure);
+    measure();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
   return (
     <div className={`app-shell ${hasRoutes ? 'app-shell--planned' : ''}`}>
       <a className="skip-link" href="#trip-planner">Skip to trip planner</a>
@@ -89,17 +109,32 @@ export function App() {
         </a>
         <div className="header-divider" />
         <h1>Weather-aware truck routing</h1>
-        <div className="header-end"><span className="header-country">Built for the long haul</span><span className="version-badge">BETA</span></div>
+        <nav className="workspace-nav" aria-label="Workspace">
+          <a className="workspace-nav-current" href="#trip-planner"><Icon name="route" size={16} />Trip planner</a>
+          <a href="#journey-map" aria-label="View map and forecast"><Icon name="layers" size={16} /><span className="nav-full-label">Map & forecast</span><span className="nav-short-label">Map</span></a>
+        </nav>
+        <div className="header-end"><span className="header-country">United States</span><span className="version-badge">BETA</span></div>
       </header>
 
       <div className="workspace">
         <aside className="planner-panel" aria-label="Trip planner" id="trip-planner" tabIndex={-1}>
           <div className="planner-content">
-            <div className="eyebrow"><span className="tiny-cross">+</span> A LITTLE FORESIGHT. A BETTER JOURNEY.</div>
-            <h2 className="planner-title">Know what’s<br />{' '}on the <em>way.</em></h2>
-            <p className="planner-description">A clearer view of the road ahead.<br />{' '}Compare routes. Stay ahead of the weather.</p>
+            <div className="eyebrow"><Icon name="compass" size={14} /> THE ROAD, WITH FORESIGHT.</div>
+            <h2 className="planner-title">{hasRoutes ? <>Your way <em>forward.</em></> : <>Every mile.<br /> <em>Considered.</em></>}</h2>
+            <p className="planner-description">A better perspective on your next trip.<br />Compare the routes. Understand the weather.</p>
             <div className="planner-section-heading"><span className="step-number">01</span><h3>Plan your journey</h3><span className="section-rule" />{hasRoutes ? <button className="edit-trip-button" disabled={plan.isPending} aria-expanded={editing} aria-controls="trip-editor" onClick={() => setEditing(!editing)}>{editing ? 'Hide details' : 'Edit trip'}<Icon name="chevron" size={13} /></button> : <Icon name="route" size={17} />}</div>
-            {hasRoutes && !editing && plan.variables && <p className="trip-summary"><span>{plan.variables.origin.label}</span><Icon name="arrow" size={15} /><span>{plan.variables.destination.label}</span></p>}
+            {hasRoutes && !editing && plan.variables && (
+              <div className="trip-summary">
+                <div className="trip-summary-locations">
+                  <div className="trip-summary-stop"><span className="place-marker" /><div><small>FROM</small><span>{plan.variables.origin.label}</span></div></div>
+                  <div className="trip-summary-stop trip-summary-stop--destination"><span className="place-marker" /><div><small>TO</small><span>{plan.variables.destination.label}</span></div></div>
+                </div>
+                <div className="trip-summary-meta">
+                  <span><Icon name="clock" size={14} /><time dateTime={plan.variables.departure}>{formatDateTime(plan.variables.departure)}</time></span>
+                  <span><Icon name="truck" size={14} />{plan.variables.load_lb.toLocaleString()} lb</span>
+                </div>
+              </div>
+            )}
             <div id="trip-editor" hidden={!editing}><TripForm onSubmit={(request) => plan.mutate(request)} pending={plan.isPending} /></div>
 
             {plan.isError && (
@@ -116,22 +151,30 @@ export function App() {
           <footer className="planner-footer"><span className="footer-mark"><Icon name="compass" size={16} /> Foresight for every mile.</span><span>US / MI / LB</span></footer>
         </aside>
 
-        <main className="map-area" aria-label="Journey overview">
-          <MapView routes={plan.data?.routes} selectedId={selectedId} onSelect={selectRoute} checkpointIndex={checkpointIndex} onInspect={inspectCheckpoint} heatmap={heatmapController} />
+        <main className="map-area" aria-label="Journey overview" id="journey-map" tabIndex={-1}>
+          <MapView routes={plan.data?.routes} selectedId={selectedId} onSelect={selectRoute} checkpointIndex={checkpointIndex} onInspect={inspectCheckpoint} heatmap={heatmapController} bottomInset={mapBottomInset} />
           <div className="map-topline">
-            <div className="map-view-label"><span className="map-status-dot" /><span>THE BIG PICTURE</span><span className="map-view-divider" /><span className="map-region">Contiguous United States</span></div>
-            <span className="map-mode"><Icon name="layers" size={15} /> Atlas view</span>
+            <div className="map-view-label"><Icon name="layers" size={15} /><span>JOURNEY ATLAS</span><span className="map-view-divider" /><span className="map-region">Contiguous United States</span></div>
           </div>
+          {selectedRoute && (
+            <section className="map-route-context" aria-label="Selected route">
+              <div>
+                <span className="map-route-eyebrow">{selectedRoute.id === plan.data?.recommended_route_id ? plan.data.no_safe_route ? 'LEAST-BAD OPTION' : 'RECOMMENDED ROUTE' : 'ALTERNATIVE ROUTE'}</span>
+                <h2>{selectedRoute.name}<span>{formatDuration(selectedRoute.duration_s)}<span aria-hidden="true"> / </span>{selectedRoute.distance_mi.toLocaleString([], { maximumFractionDigits: 1 })} mi</span></h2>
+              </div>
+              <a className="map-compare-link" href="#route-options" aria-label="Compare routes"><Icon name="arrow" size={19} /></a>
+            </section>
+          )}
           {!hasRoutes && !plan.isPending && (
-            <div className="map-empty" aria-hidden="true">
+            <div className="map-empty">
               <span className="map-empty-icon"><Icon name="route" size={26} /></span>
-              <h2>{plan.data ? <>No route found.<br /><em>A different way?</em></> : <>Your next chapter,<br /><em>mapped out.</em></>}</h2>
+              <h2>{plan.data ? <>No route found.<br /><em>A different way?</em></> : <>The road ahead,<br /><em>in focus.</em></>}</h2>
               <p>{plan.data ? 'Try another origin or destination to explore a different journey.' : <>Start with a destination.<br />We’ll help you see the way forward.</>}</p>
-              <span className="map-empty-coordinate">39.5000° N &nbsp; 98.5000° W</span>
+              <a className="map-empty-link" href="#trip-planner">{plan.data ? 'Adjust your trip' : 'Start with your trip'}<Icon name="arrow" size={16} /></a>
             </div>
           )}
           {plan.isPending && <div className="map-planning-status" role="status"><span className="spinner" /> Comparing routes and checking forecasts</div>}
-          <div className="map-bottom">
+          <div className="map-bottom" ref={mapDock}>
             {hasRoutes && !plan.isPending && (
               <HeatmapPanel
                 key={plan.submittedAt}
@@ -144,16 +187,12 @@ export function App() {
               />
             )}
             <section className="map-legend" aria-label="Weather risk key">
-              <div className="map-card-heading"><Icon name="shield" size={15} /><h2>Every mile, in perspective.</h2><span>WEATHER RISK</span></div>
+              <div className="map-card-heading"><Icon name="shield" size={14} /><h2>Weather risk</h2></div>
               <RiskLegend />
             </section>
-            {selectedRoute ? <section className="forecast-note selected-route-note" aria-label="Selected route">
-              <span className="forecast-icon"><Icon name="route" size={24} /></span>
-              <div><h2>{selectedRoute.name} <span>· {formatDuration(selectedRoute.duration_s)} · {selectedRoute.distance_mi.toLocaleString([], { maximumFractionDigits: 1 })} mi</span></h2><p>Select a checkpoint to inspect the weather at your ETA. Dashed grey segments have no forecast.</p></div>
-              <a className="map-compare-link" href="#route-options">Compare routes <Icon name="arrow" size={15} /></a>
-            </section> : <section className="forecast-note" aria-label="Forecast availability">
+            {!hasRoutes && <section className="forecast-note" aria-label="Forecast availability">
               <span className="forecast-icon"><Icon name="weather" size={24} /></span>
-              <div><h2>The weather moves. Your plan should, too.</h2><p>Plan a trip to see a 48-hour forecast across the whole corridor, hour by hour.</p></div>
+              <div><h2>See beyond the next turn.</h2><p>Plan a trip to see a 48-hour forecast across the whole corridor, hour by hour.</p></div>
               <span className="soon-badge">48 H</span>
             </section>}
           </div>

@@ -43,7 +43,7 @@ export const testPlan: PlanResponse = {
   recommended_route_id: 'r2',
   no_safe_route: false,
   routes: [recommendedRoute, testRoute],
-  corridor: { bbox: [-127, 38, -120, 44] },
+  corridor: { bbox: [-127, 38, -120, 44], max_grid_points: 150 },
 };
 
 export const testHeatmap: HeatmapResponse = {

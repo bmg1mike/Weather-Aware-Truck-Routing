@@ -7,7 +7,7 @@ import pytest
 from django.core.cache.backends.locmem import LocMemCache
 
 from trips.domain import HourlyForecast, LatLon, Place, RiskLevel, RouteOption
-from trips.errors import BudgetExceeded
+from trips.errors import BudgetExceeded, NoRouteFound, ProviderRateLimited, ProviderUnavailable
 from trips.services.planner import PlanInput, TripPlanner
 from trips.services.sampling import haversine_mi
 from trips.services.weather import HourValues, WeatherLookup
@@ -176,7 +176,7 @@ def test_overlapping_routes_share_lattice_cells(name):
 
 def test_budget_exceeded_suggests_a_larger_interval_before_fetching_weather(name):
     routes = [north_route(f"r{i}", 1000, 15, lon=-100 - i) for i in range(1, 4)]
-    trip, weather = planner(routes, cache_name=name, max_checkpoint_cells=250)
+    trip, weather = planner(routes, cache_name=name, max_checkpoint_cells=250)  # tighter limit
     with pytest.raises(BudgetExceeded) as info:
         trip.plan(plan_input(interval=10))
     assert "25 or 50 mile" in info.value.message
@@ -197,3 +197,171 @@ def test_corridor_bbox_covers_every_route_with_a_buffer(name):
     min_lon, min_lat, max_lon, max_lat = planner(routes, cache_name=name)[0].plan(plan_input()).bbox
     assert min_lat < 35 - 0.4 and max_lat > 35 + 100 / MI_PER_DEG_LAT + 0.4
     assert min_lon < -101 - 0.4 and max_lon > -100 + 0.4
+
+
+# --- fewer than three routes (spec section 5) --------------------------------------------------
+
+
+class ViaRouting:
+    """Primary request returns ``primary``; each via request returns ``respond(via_point)``.
+
+    Via requests run in parallel, so answers depend on the via point, never on call order.
+    """
+
+    def __init__(self, primary, respond=lambda via: []):
+        self.primary = primary
+        self.respond = respond
+        self.calls = []
+
+    def routes(self, origin, destination, *, via=(), **kwargs):
+        self.calls.append({"via": tuple(via), **kwargs})
+        if not via:
+            return self.primary
+        result = self.respond(via[0])
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def via_calls(self):
+        return [c for c in self.calls if c["via"]]
+
+
+def by_side(west=None, east=None, origin_lon=-100.0):
+    """Answer west via points with ``west`` and east ones with ``east`` (a route or an error)."""
+
+    def respond(via):
+        answer = west if via.lon < origin_lon else east
+        if answer is None or isinstance(answer, Exception):
+            return answer if answer is not None else []
+        return [answer]
+
+    return respond
+
+
+def via_planner(routing, name):
+    lookup = WeatherLookup(FakeWeather(lambda c, h: CALM), LocMemCache(name, {}))
+    return TripPlanner(routing, lookup)
+
+
+def test_three_distinct_routes_need_no_via_requests(name):
+    routing = ViaRouting(
+        [
+            north_route("r1", 100, 2),
+            north_route("r2", 100, 2, lon=-101),
+            north_route("r3", 100, 2, lon=-102),
+        ]
+    )
+    result = via_planner(routing, name).plan(plan_input())
+    assert len(result.routes) == 3
+    assert len(routing.calls) == 1
+
+
+def test_fewer_routes_add_left_and_right_via_routes(name):
+    routing = ViaRouting(
+        [north_route("r1", 100, 2)],
+        by_side(
+            west=north_route("x", 110, 2.2, lon=-100.8), east=north_route("x", 115, 2.3, lon=-99.2)
+        ),
+    )
+    result = via_planner(routing, name).plan(plan_input())
+    via_calls = routing.via_calls()
+    assert len(via_calls) == 2
+    assert all(c["max_alternatives"] == 0 and len(c["via"]) == 1 for c in via_calls)
+    assert sorted(c["via"][0].lon < -100 for c in via_calls) == [False, True]  # one each side
+    for call in via_calls:
+        # ~10% of the 100 mi trip from the midpoint.
+        assert abs(call["via"][0].lon + 100) * 56.6 == pytest.approx(10, rel=0.05)
+    assert sorted(r.id for r in result.routes) == ["r1", "r2", "r3"]
+    assert {r.name for r in result.routes} == {"Route A", "Route B", "Route C"}
+
+
+def test_routes_overlapping_more_than_80_percent_are_discarded(name):
+    duplicate = north_route("r2", 100, 2.1, lon=-100.002)  # same road, slightly different time
+    routing = ViaRouting(
+        [north_route("r1", 100, 2), duplicate],
+        by_side(
+            west=north_route("x", 100, 2, lon=-100.001), east=north_route("x", 120, 2.4, lon=-99.0)
+        ),
+    )
+    result = via_planner(routing, name).plan(plan_input())
+    lons = sorted(r.option.points[0].lon for r in result.routes)
+    assert lons == [-100.0, -99.0]
+
+
+def test_via_offset_widens_to_20_percent_when_10_percent_rejoins_the_route(name):
+    def respond(via):
+        offset_mi = abs(via.lon + 100) * 56.6
+        if offset_mi < 15:  # the 10% via points: the detour rejoins the primary road
+            return [north_route("x", 100, 2.1, lon=-100.001)]
+        return [north_route("x", 120, 2.4, lon=-100 + (1 if via.lon > -100 else -1))]
+
+    routing = ViaRouting([north_route("r1", 100, 2)], respond)
+    result = via_planner(routing, name).plan(plan_input())
+    offsets = sorted(round(abs(c["via"][0].lon + 100) * 56.6) for c in routing.via_calls())
+    assert offsets == [10, 10, 20, 20]
+    assert len(result.routes) == 3
+
+
+def test_detours_much_slower_than_the_primary_are_discarded(name):
+    slow = north_route("x", 160, 3.1, lon=-99.0)  # 55% longer in time than the 2 h primary
+    routing = ViaRouting([north_route("r1", 100, 2)], by_side(east=slow))
+    assert len(via_planner(routing, name).plan(plan_input()).routes) == 1
+
+
+def test_failed_via_requests_still_return_the_routes_found(name):
+    routing = ViaRouting(
+        [north_route("r1", 100, 2)], by_side(west=NoRouteFound(), east=NoRouteFound())
+    )
+    result = via_planner(routing, name).plan(plan_input())
+    assert [r.id for r in result.routes] == ["r1"]
+
+
+@pytest.mark.parametrize(
+    "error", [ProviderUnavailable("TomTom"), ProviderRateLimited("TomTom", 60)]
+)
+def test_provider_errors_on_via_requests_do_not_fail_the_plan(name, error):
+    routing = ViaRouting([north_route("r1", 100, 2)], by_side(west=error, east=error))
+    assert len(via_planner(routing, name).plan(plan_input()).routes) == 1
+
+
+def test_via_points_outside_the_us_are_not_requested(name):
+    # A route hugging the Canadian border: the west/north via point would land in Canada.
+    border = RouteOption(
+        id="r1",
+        points=tuple(LatLon(49.2, -122 + 20 * i / 100) for i in range(101)),
+        distance_mi=900,
+        duration_s=13 * 3600,
+        departure=DEPART,
+        arrival=DEPART + timedelta(hours=13),
+    )
+    routing = ViaRouting([border])
+    via_planner(routing, name).plan(plan_input())
+    via_points = [c["via"][0] for c in routing.via_calls()]
+    assert via_points and all(v.lat < 49.5 for v in via_points)  # the Canadian side is never sent
+
+
+# --- shared 500-location budget (spec section 5, plan phase 5) -----------------------------------
+
+
+def test_heatmap_gets_the_budget_left_after_checkpoints(name):
+    # 3 separate 1,000 mi routes at 10 mi: 3 x 101 checkpoints in distinct cells.
+    routes = [north_route(f"r{i}", 1000, 15, lon=-100 - i) for i in range(1, 4)]
+    trip, weather = planner(routes, cache_name=name)
+    result = trip.plan(plan_input(interval=10))
+    cells = len(set(weather.requested_cells))
+    assert 300 < cells <= 400
+    assert result.max_grid_points == 500 - cells
+
+
+def test_heatmap_budget_is_capped_at_200(name):
+    result = planner([north_route("r1", 100, 2)], cache_name=name)[0].plan(plan_input())
+    assert result.max_grid_points == 200
+
+
+def test_checkpoints_may_not_crowd_out_a_minimal_heatmap(name):
+    routes = [north_route(f"r{i}", 1500, 22, lon=-100 - i) for i in range(1, 4)]
+    trip, weather = planner(routes, cache_name=name)
+    with pytest.raises(BudgetExceeded) as info:
+        trip.plan(plan_input(interval=10))
+    assert "limit of 400" in info.value.message
+    assert weather.requested_cells == []

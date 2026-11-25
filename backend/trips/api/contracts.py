@@ -6,7 +6,7 @@ These TypedDicts are the single backend description of response shapes; they are
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from trips.domain import CheckpointLevelSlug, Driver, SamplingInterval
 
@@ -108,6 +108,8 @@ class RouteJSON(TypedDict):
 class CorridorJSON(TypedDict):
     bbox: tuple[float, float, float, float]
     """[min_lon, min_lat, max_lon, max_lat]."""
+    max_grid_points: int
+    """Locations left for the heatmap (<= 200); sent back as ``HeatmapRequest.max_points``."""
 
 
 class PlanResponse(TypedDict):
@@ -125,6 +127,8 @@ class HeatmapRequest(TypedDict):
     route_geometries: list[str]
     start: str
     load_lb: int
+    max_points: NotRequired[int]
+    """Grid point cap from the plan's corridor (1-200, default 200)."""
 
 
 class GridJSON(TypedDict):

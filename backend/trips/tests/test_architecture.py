@@ -12,6 +12,8 @@ PURE_MODULES = [
     TRIPS_DIR / "domain.py",
     TRIPS_DIR / "services" / "risk.py",
     TRIPS_DIR / "services" / "scoring.py",
+    TRIPS_DIR / "services" / "sampling.py",
+    TRIPS_DIR / "services" / "geometry.py",
 ]
 # trips.api / trips.errors are listed because importing them pulls in Django transitively.
 FORBIDDEN_IMPORTS = {

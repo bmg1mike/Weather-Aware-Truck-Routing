@@ -97,8 +97,7 @@ export function HeatmapPanel({
   return (
     <section className="heatmap-panel" aria-label="Corridor forecast">
       <div className="heatmap-header">
-        <Icon name="weather" size={16} />
-        <h2>48-hour corridor forecast</h2>
+        <div className="heatmap-heading"><span className="heatmap-heading-icon"><Icon name="weather" size={20} /></span><div><span className="heatmap-eyebrow">THE CONDITIONS AHEAD</span><h2>48-hour corridor forecast</h2></div></div>
         <div className="heatmap-layers" role="radiogroup" aria-label="Heatmap layer">
           {LAYERS.map((item) => (
             <label key={item.key} className={item.key === layer ? 'is-active' : undefined}>
@@ -118,24 +117,28 @@ export function HeatmapPanel({
             setPlaying(!playing);
           }}
         >
-          <span aria-hidden="true">{playing ? '❚❚' : '▶'}</span>
+          <Icon name={playing ? 'pause' : 'play'} size={18} />
         </button>
-        <input
-          type="range"
-          min={0}
-          max={LAST_HOUR}
-          step={1}
-          value={hour}
-          aria-label="Forecast hour"
-          aria-valuetext={`${label.time}, ${label.date}, ${hour} hours after departure`}
-          onChange={(event) => setHour(Number(event.target.value))}
-        />
+        <div className="heatmap-scrubber">
+          <input
+            type="range"
+            min={0}
+            max={LAST_HOUR}
+            step={1}
+            value={hour}
+            aria-label="Forecast hour"
+            aria-valuetext={`${label.time}, ${label.date}, ${hour} hours after departure`}
+            style={{ backgroundImage: `linear-gradient(to right, var(--forest) ${hour / LAST_HOUR * 100}%, var(--line) ${hour / LAST_HOUR * 100}%)` }}
+            onChange={(event) => setHour(Number(event.target.value))}
+          />
+          <div className="heatmap-ticks" aria-hidden="true"><span>Departure</span><span>+12h</span><span>+24h</span><span>+36h</span><span>+48h</span></div>
+        </div>
         <p className="heatmap-time" aria-live="polite">
           <strong>{label.time}</strong> <span>{label.date}</span> <span className="heatmap-offset">+{hour} h</span>
         </p>
       </div>
       {layer === 'risk'
-        ? <p className="heatmap-note">Risk uses the same rules and load as your route. Hour 0 is departure; markers show where each truck would be.</p>
+        ? <p className="heatmap-note">Risk reflects your load. Hour 0 is departure.<span className="heatmap-marker-note"> Markers show where each truck would be.</span></p>
         : <ValueScaleKey layer={layer} />}
     </section>
   );

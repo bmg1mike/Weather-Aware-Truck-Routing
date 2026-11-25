@@ -56,6 +56,6 @@ class HeatmapView(APIView):
         serializer = HeatmapRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        grid = corridor_grid(data["bbox"], data["route_geometries"])
+        grid = corridor_grid(data["bbox"], data["route_geometries"], max_points=data["max_points"])
         frames = get_heatmap_builder().build(grid.points, data["start"], load_lb=data["load_lb"])
         return Response(heatmap_json(grid, frames))

@@ -120,7 +120,10 @@ def plan_json(plan: TripPlan) -> PlanResponse:
         "recommended_route_id": plan.recommended_id,
         "no_safe_route": plan.no_safe_route,
         "routes": [route_json(route) for route in plan.routes],
-        "corridor": {"bbox": tuple(round(v, 4) for v in plan.bbox)},  # type: ignore[typeddict-item]
+        "corridor": {
+            "bbox": tuple(round(v, 4) for v in plan.bbox),  # type: ignore[typeddict-item]
+            "max_grid_points": plan.max_grid_points,
+        },
     }
 
 

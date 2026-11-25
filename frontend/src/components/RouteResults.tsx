@@ -29,7 +29,7 @@ export function RouteResults({
         <h2 id="route-options" tabIndex={-1} ref={headingRef}><span className="step-number">02</span> Compare your routes</h2>
         <span>{plan.routes.length} available</span>
       </div>
-      <p className="results-explainer">Weather risk first. Travel time second.</p>
+      <p className="results-explainer"><span>Weather risk first. Travel time second.</span><a className="mobile-map-link" href="#journey-map">View map <Icon name="arrow" size={14} /></a></p>
       {plan.routes.length > 0 && plan.routes.length < 3 && <p className="route-notice">Only {plan.routes.length} distinct routes available.</p>}
       {plan.no_safe_route && (
         <div className="safety-banner" role="alert">
@@ -66,7 +66,11 @@ export function RouteResults({
               <span className="route-name"><span className="rank-badge">{route.rank.toString().padStart(2, '0')}</span>{route.name}</span>
               {recommended && <span className={`route-badge ${plan.no_safe_route ? 'route-badge--blocked' : ''}`}><Icon name="shield" size={12} />{plan.no_safe_route ? 'Least bad' : 'Recommended'}</span>}
             </span>
-            <span className="route-metrics"><strong>{formatDuration(route.duration_s)}</strong><span>{route.distance_mi.toLocaleString([], { maximumFractionDigits: 1 })} mi</span><Icon name="arrow" size={17} /></span>
+            <span className="route-metrics">
+              <span className="route-duration"><small>Driving time</small><strong>{formatDuration(route.duration_s)}</strong></span>
+              <span className="route-distance"><small>Distance</small><span>{route.distance_mi.toLocaleString([], { maximumFractionDigits: 1 })} mi</span></span>
+              <span className="route-selection" aria-hidden="true"><Icon name={route.id === selectedId ? 'check' : 'arrow'} size={16} /></span>
+            </span>
             <span className="route-reason">{route.reason}</span>
             <span className="mileage-bar" role="img" aria-label={`Mileage by weather risk. ${description || 'No scored miles.'}`}>
               {mileage.map(({ level, miles }) => (

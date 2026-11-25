@@ -84,6 +84,8 @@ def test_required_plan_fields(client, plan_payload, missing):
         ("load_lb", 0),
         ("route_geometries", ["not a polyline!"]),
         ("route_geometries", ["_p~iF~ps|U"]),  # a single point is not a route
+        ("max_points", 0),
+        ("max_points", 201),
     ],
 )
 def test_invalid_heatmap_fields(client, heatmap_payload, field, value):

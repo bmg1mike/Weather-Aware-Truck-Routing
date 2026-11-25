@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from trips.domain import SAMPLING_INTERVALS_MI, LatLon
+from trips.services.geometry import in_us
 from trips.services.sampling import decode_polyline
 
 MIN_LOAD_LB = 1
@@ -48,19 +49,6 @@ class FiniteFloatField(serializers.FloatField):
         if not math.isfinite(value):
             raise serializers.ValidationError("Must be a finite number.")
         return value
-
-
-# [ASSUMPTION] US only (spec section 3). Approximate boxes for the contiguous US, Alaska and
-# Hawaii; geocoding is already restricted to US results, so this catches hand-made requests.
-US_BOUNDS: tuple[tuple[float, float, float, float], ...] = (
-    (24.3, 49.5, -125.0, -66.8),  # (min_lat, max_lat, min_lon, max_lon)
-    (51.0, 71.5, -180.0, -129.9),
-    (18.8, 22.4, -160.4, -154.7),
-)
-
-
-def in_us(lat: float, lon: float) -> bool:
-    return any(a <= lat <= b and c <= lon <= d for a, b, c, d in US_BOUNDS)
 
 
 class PlaceSerializer(serializers.Serializer[dict[str, Any]]):
@@ -115,6 +103,7 @@ class HeatmapRequestSerializer(serializers.Serializer[dict[str, Any]]):
     )
     start = serializers.CharField()
     load_lb = LoadField()
+    max_points = serializers.IntegerField(min_value=1, max_value=200, default=200)
 
     def validate_start(self, value: str) -> datetime:
         return parse_offset_datetime(value, past_grace=HEATMAP_START_PAST_GRACE)

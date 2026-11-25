@@ -14,7 +14,7 @@ const EMPTY_ROUTES: Route[] = [];
 
 maplibregl.setWorkerUrl(mapWorkerUrl);
 
-function updateRoutes(map: maplibregl.Map, routes: Route[], selectedId: string | null, fit: boolean) {
+function updateRoutes(map: maplibregl.Map, routes: Route[], selectedId: string | null, fit: boolean, bottomInset: number) {
   const lines = routeFeatures(routes, selectedId);
   map.getSource<maplibregl.GeoJSONSource>('trip-routes')?.setData(lines);
   map.getSource<maplibregl.GeoJSONSource>('trip-segments')?.setData(segmentFeatures(routes, selectedId));
@@ -29,8 +29,8 @@ function updateRoutes(map: maplibregl.Map, routes: Route[], selectedId: string |
     }
     const narrow = map.getContainer().clientWidth < 500;
     if (!bounds.isEmpty()) map.fitBounds(bounds, {
-      // Bottom padding clears the legend, route note and heatmap panel stacked over the map.
-      padding: { top: 100, bottom: narrow ? 190 : 320, left: narrow ? 24 : 60, right: narrow ? 24 : 60 },
+      // Keep routes between the selected-route context and the forecast dock.
+      padding: { top: 165, bottom: bottomInset, left: narrow ? 24 : 60, right: narrow ? 24 : 60 },
       maxZoom: 11,
       duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 700,
     });
@@ -44,6 +44,7 @@ export function MapView({
   checkpointIndex = null,
   onInspect,
   heatmap,
+  bottomInset = 320,
 }: {
   routes?: Route[];
   selectedId?: string | null;
@@ -52,11 +53,12 @@ export function MapView({
   onInspect?: (routeId: string, index: number | null) => void;
   /** Created once by the caller; attached when the map loads (after the route layers). */
   heatmap?: HeatmapController;
+  bottomInset?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
-  const dataRef = useRef({ routes, selectedId, onSelect, onInspect });
+  const dataRef = useRef({ routes, selectedId, onSelect, onInspect, bottomInset });
   const heatmapRef = useRef(heatmap);
   const [mapError, setMapError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -66,9 +68,10 @@ export function MapView({
 
   useEffect(() => {
     const changed = dataRef.current.routes !== routes;
-    dataRef.current = { routes, selectedId, onSelect, onInspect };
-    if (mapRef.current && readyRef.current) updateRoutes(mapRef.current, routes, selectedId, changed);
-  }, [routes, selectedId, onSelect, onInspect]);
+    const resized = dataRef.current.bottomInset !== bottomInset;
+    dataRef.current = { routes, selectedId, onSelect, onInspect, bottomInset };
+    if (mapRef.current && readyRef.current) updateRoutes(mapRef.current, routes, selectedId, changed || resized, bottomInset);
+  }, [routes, selectedId, onSelect, onInspect, bottomInset]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -178,7 +181,7 @@ export function MapView({
         map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
       }
-      updateRoutes(map, dataRef.current.routes, dataRef.current.selectedId, true);
+      updateRoutes(map, dataRef.current.routes, dataRef.current.selectedId, true, dataRef.current.bottomInset);
       heatmapController?.attach(map);
       setReady(true);
     });

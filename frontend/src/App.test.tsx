@@ -58,6 +58,7 @@ describe('App shell', () => {
       route_geometries: testPlan.routes.map((route) => route.geometry),
       start: planTrip.mock.calls[0]?.[0].departure,
       load_lb: planTrip.mock.calls[0]?.[0].load_lb,
+      max_points: testPlan.corridor.max_grid_points,
     });
     await user.click(screen.getByRole('button', { name: 'Select Route A, rank 2' }));
     expect(screen.getByRole('region', { name: 'Selected route' })).toHaveTextContent('Route A');
