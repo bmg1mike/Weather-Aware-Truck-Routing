@@ -1,0 +1,46 @@
+# Render Blueprint: one repo, two services (https://render.com/docs/blueprint-spec).
+# Render > New > Blueprint > pick this repo. Values marked sync: false are asked for on creation.
+services:
+  # Django API. The TomTom key lives only here, never in the frontend bundle.
+  - type: web
+    name: waypoint-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    # One worker so the in-memory forecast cache is shared by every request.
+    startCommand: .venv/bin/gunicorn config.wsgi --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 60
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: TOMTOM_API_KEY
+        sync: false
+      # The frontend's URL, e.g. https://waypoint.onrender.com (no trailing slash).
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: WIND_SOURCE
+        value: sustained
+      # The service's own *.onrender.com host is added automatically from RENDER_EXTERNAL_HOSTNAME.
+      - key: ALLOWED_HOSTS
+        value: localhost
+
+  # React app, built once and served as static files.
+  - type: web
+    name: waypoint
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22.12.0"
+      # The API's URL, e.g. https://waypoint-api.onrender.com (no trailing slash). Baked in at build time.
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -8,7 +8,14 @@ from django.core.exceptions import ImproperlyConfigured
 
 
 def load_settings(monkeypatch, **env):
-    for key in ("DJANGO_SECRET_KEY", "DJANGO_DEBUG", "REDIS_URL", "WIND_SOURCE"):
+    for key in (
+        "DJANGO_SECRET_KEY",
+        "DJANGO_DEBUG",
+        "REDIS_URL",
+        "WIND_SOURCE",
+        "ALLOWED_HOSTS",
+        "RENDER_EXTERNAL_HOSTNAME",
+    ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DJANGO_SKIP_DOTENV", "1")  # keep a developer's local .env out
     for key, value in env.items():
@@ -87,3 +94,13 @@ def test_local_cache_holds_a_full_trip(monkeypatch):
     # A 1,000 mi trip at 10 mi needs ~300 cells x 2 hours plus routes; Django's default is 300.
     settings = load_settings(monkeypatch, DJANGO_SECRET_KEY="x")
     assert settings.CACHES["default"]["OPTIONS"]["MAX_ENTRIES"] >= 10_000
+
+
+def test_render_hostname_is_allowed_alongside_configured_hosts(monkeypatch):
+    settings = load_settings(
+        monkeypatch,
+        DJANGO_SECRET_KEY="x",
+        ALLOWED_HOSTS="api.example.com",
+        RENDER_EXTERNAL_HOSTNAME="waypoint-api.onrender.com",
+    )
+    assert settings.ALLOWED_HOSTS == ["api.example.com", "waypoint-api.onrender.com"]

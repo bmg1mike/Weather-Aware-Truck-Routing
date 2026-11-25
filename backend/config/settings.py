@@ -54,6 +54,9 @@ if not SECRET_KEY:
     SECRET_KEY = "insecure-dev-only-key"
 
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
+# Render sets this to the service's public hostname (e.g. waypoint-api.onrender.com).
+if render_host := os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip():
+    ALLOWED_HOSTS.append(render_host)
 
 INSTALLED_APPS = [
     "corsheaders",

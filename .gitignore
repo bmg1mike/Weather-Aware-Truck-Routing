@@ -25,7 +25,9 @@ coverage/
 spec.md
 plan.md
 CLAUDE.md
+doc/
 docs/
+.playwright-mcp/
 
 # Provider smoke-test output
 backend/smoke-results.json
